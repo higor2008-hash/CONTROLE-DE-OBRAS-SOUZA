@@ -1,0 +1,110 @@
+{
+ "dados": {
+  "recurso": "OGU",
+  "proponente": "PREFEITURA MUNICIPAL DE EXEMPLO",
+  "municipio": "EXEMPLO - GO",
+  "operacao": null,
+  "transferegov": null,
+  "repasse": null,
+  "contrapartida": null,
+  "apelido": "BUEIRO DE EXEMPLO",
+  "descricao_lote": "BUEIRO",
+  "desoneracao": "NÃO DESONERADO",
+  "data_base": "2026-05-01",
+  "data_preenchimento": "2026-09-09",
+  "arredondamento": "TransfereGOV",
+  "regime_execucao": "(SELECIONAR)",
+  "responsavel_orcamento": [
+   "EMPRESA EXEMPLO LTDA",
+   null,
+   null
+  ],
+  "prefeito": [
+   "NOME DO PREFEITO",
+   "PREFEITO MUNICIPAL"
+  ]
+ },
+ "bdi": {
+  "tipo": "Construção de Praças Urbanas, Rodovias, Ferrovias e recapeamento e pavimentação de vias urbanas",
+  "parcelas": {
+   "AC": 0.04,
+   "SG": 0.006,
+   "R": 0.006,
+   "DF": 0.011,
+   "L": 0.074,
+   "CP": 0.0365
+  },
+  "iss_base": 0.5,
+  "iss_aliquota": 0.0383
+ },
+ "itens": [
+  {
+   "nivel": "Meta",
+   "descricao": "BUEIRO ( MANILHAS)",
+   "bdi": "BDI 1",
+   "recurso": "RA"
+  },
+  {
+   "nivel": "Nível 2",
+   "descricao": "EXCUÇÃO DO BUEIRO",
+   "bdi": "BDI 1",
+   "recurso": "RA"
+  },
+  {
+   "nivel": "Serviço",
+   "fonte": "SINAPI-I",
+   "codigo": "6117",
+   "descricao": "CARPINTEIRO AUXILIAR (HORISTA)",
+   "unidade": "H",
+   "custo_unitario": 15.66,
+   "bdi": "BDI 1",
+   "recurso": "RA",
+   "memoria": "4*10",
+   "quantidade_frentes": [
+    40
+   ]
+  },
+  {
+   "nivel": "Serviço",
+   "fonte": "SINAPI-I",
+   "codigo": "1213",
+   "descricao": "CARPINTEIRO DE FORMAS PARA CONCRETO (HORISTA)",
+   "unidade": "H",
+   "custo_unitario": 24.01,
+   "bdi": "BDI 1",
+   "recurso": "RA",
+   "memoria": "4*10",
+   "quantidade_frentes": [
+    40
+   ]
+  },
+  {
+   "nivel": "Serviço",
+   "fonte": "SINAPI",
+   "codigo": "88316",
+   "descricao": "SERVENTE COM ENCARGOS COMPLEMENTARES",
+   "unidade": "H",
+   "custo_unitario": 23.2,
+   "bdi": "BDI 1",
+   "recurso": "RA",
+   "memoria": "3*8*4",
+   "quantidade_frentes": [
+    96
+   ]
+  },
+  {
+   "nivel": "Serviço",
+   "fonte": "SINAPI-I",
+   "codigo": "4750",
+   "descricao": "PEDREIRO (HORISTA)",
+   "unidade": "H",
+   "custo_unitario": 24.01,
+   "bdi": "BDI 1",
+   "recurso": "RA",
+   "memoria": "2*8*3",
+   "quantidade_frentes": [
+    48
+   ]
+  }
+ ]
+}
