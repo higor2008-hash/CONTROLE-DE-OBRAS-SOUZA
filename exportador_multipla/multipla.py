@@ -95,6 +95,8 @@ def ler_multipla(caminho):
         if not nivel:
             continue
         item = {campo: _jsonable(colunas[campo][i]) for campo in ITEM_COLUNAS}
+        if isinstance(item["codigo"], (int, float)):
+            item["codigo"] = str(int(item["codigo"]))
         if nivel == "Serviço":
             q = [v or 0 for v in frentes[i]]
             while q and q[-1] == 0:
@@ -212,10 +214,15 @@ def gerar_origem(orc, saida):
 
 
 def main(argv):
-    """python -m exportador_multipla ler ARQUIVO.xlsm | gerar ORCAMENTO.json SAIDA.xlsx"""
+    """python -m exportador_multipla ler ARQUIVO.xlsm | gerar ORCAMENTO.json SAIDA.xlsx
+    | preencher ORCAMENTO.json MULTIPLA_MODELO.xlsm SAIDA.xlsm"""
     cmd = argv[1]
     if cmd == "ler":
         print(json.dumps(ler_multipla(argv[2]), ensure_ascii=False, indent=1))
+    elif cmd == "preencher":
+        from .preencher import preencher_multipla
+        orc = json.loads(Path(argv[2]).read_text(encoding="utf-8"))
+        print(preencher_multipla(orc, argv[3], argv[4]))
     elif cmd == "gerar":
         orc = json.loads(Path(argv[2]).read_text(encoding="utf-8"))
         print(gerar_origem(orc, argv[3]))

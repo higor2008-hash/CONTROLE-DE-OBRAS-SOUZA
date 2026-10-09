@@ -23,6 +23,9 @@ def resolve(text):
     m = re.fullmatch(r"(?:'?([^'!]+)'?)!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)", t)
     if m:
         return m.group(1), ci(m.group(2)), int(m.group(3)), ci(m.group(4)), int(m.group(5))
+    m = re.fullmatch(r"(?:'?([^'!]+)'?)!\$?(\d+):\$?(\d+)", t)
+    if m:  # linhas inteiras, ex.: ORÇAMENTO!$14:$14
+        return m.group(1), 1, int(m.group(2)), 16384, int(m.group(3))
     parts = re.split(r":(?=OFFSET|'?[^!:]+!)", t)
     try:
         if len(parts) == 2:
