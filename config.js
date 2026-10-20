@@ -2,5 +2,5 @@
    A chave "anon public" pode ficar aqui: quem acessa os dados é controlado pelo login. */
 window.CONTROLE_CONFIG = {
   supabaseUrl: "https://vdczzukvsqkwxuuqnspw.supabase.co",
-  supabaseAnonKey: "COLE_AQUI_A_ANON_PUBLIC_KEY"
+  supabaseAnonKey: "sb_publishable_xG3HbvHJz5pxM0un0dKq8Q_LGkIrpkq"
 };
