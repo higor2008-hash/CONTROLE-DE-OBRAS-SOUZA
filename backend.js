@@ -99,8 +99,10 @@
     if (error) {
       let code = "upstream_error";
       const status = error.context && error.context.status;
-      try { const j = await error.context.json(); if (j && j.code) code = j.code; } catch (e) {}
-      if (status === 404 || error.name === "FunctionsRelayError" || error.name === "FunctionsFetchError") code = "sampling_disabled";
+      try { const j = await error.context.json(); if (j && typeof j.code === "string") code = j.code; } catch (e) {}
+      if (status === 404) code = "funcao_ausente";
+      else if (status === 401 || status === 403) code = "funcao_login";
+      else if (error.name === "FunctionsRelayError" || error.name === "FunctionsFetchError") code = "funcao_ausente";
       throw { code, message: error.message };
     }
     return { text: (data && data.text) || "", truncated: !!(data && data.truncated) };

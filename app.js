@@ -660,11 +660,13 @@
         const atual = curObra();
         await patch(atual, { fotos: (atual.fotos || []).map(f => f.id === pares[i].id && (!f.legenda || pares[i].trocar) ? { ...f, legenda: leg } : f) });
         feitas++;
-      } catch (e) { erro = e; if (e && (e.code === "sampling_disabled" || e.code === "not_granted")) break; }
+      } catch (e) { erro = e; if (e && /sampling_disabled|not_granted|funcao_/.test(e.code)) break; }
     }
     return { feitas, erro };
   }
-  const sampleErro = e => ({ sampling_disabled: "A leitura automática ainda não foi configurada no servidor (falta a chave da API). Preencha à mão.", not_granted: "A leitura automática não foi autorizada. Preencha os valores à mão.", rate_limited: "Muitas leituras seguidas. Espere um pouco e tente de novo.",
+  const sampleErro = e => ({ sampling_disabled: "A leitura automática ainda não foi configurada no servidor: a função ler-documento existe, mas falta a chave ANTHROPIC_API_KEY em Edge Functions > Secrets (ou a chave está errada).",
+    funcao_ausente: "A leitura automática ainda não foi configurada: a função ler-documento não foi encontrada no Supabase (Edge Functions). Confira se ela foi criada com esse nome exato.",
+    funcao_login: "A função ler-documento recusou o acesso. Saia e entre de novo no site; se continuar, desligue Verify JWT na função ler-documento no Supabase.", not_granted: "A leitura automática não foi autorizada. Preencha os valores à mão.", rate_limited: "Muitas leituras seguidas. Espere um pouco e tente de novo.",
     invalid_json: "Não consegui entender o arquivo. Preencha os valores à mão.", image_rejected: "A imagem não pôde ser lida. Tente uma foto mais nítida." }[e && e.code] || "Não foi possível ler o arquivo agora. Preencha os valores à mão.");
 
   async function lerMedicao() {
@@ -1163,7 +1165,7 @@
           state.busy = "legenda";
           const { feitas, erro } = await legendarFotos(novas.map((f, i) => ({ id: f.id, data: f.data, arquivo: files[i] })));
           state.info = feitas ? `${novas.length} foto(s) adicionada(s) e ${feitas} legenda(s) escrita(s) pelo Claude. Confira e corrija se precisar.` : `${novas.length} foto(s) adicionada(s). Escreva a legenda de cada uma.`;
-          if (erro && !feitas) state.warn = erro.code === "sampling_disabled" ? "A legenda automática ainda não está ligada (falta a chave da API no servidor). Escreva a legenda à mão." : "Não consegui escrever a legenda automática agora. Escreva à mão ou use o botão Descrever com Claude.";
+          if (erro && !feitas) state.warn = sampleErro(erro);
         }
       } catch (e) { state.error = erroTxt(e, "enviar as fotos"); }
       state.busy = ""; return render();
