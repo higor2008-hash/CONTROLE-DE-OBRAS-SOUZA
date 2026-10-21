@@ -2,6 +2,7 @@
 // e devolve o texto da resposta. Só usuários logados no site conseguem chamá-la.
 // A chave da API fica no segredo ANTHROPIC_API_KEY (Edge Functions > Secrets), nunca no site.
 import Anthropic from "npm:@anthropic-ai/sdk";
+import { createClient } from "npm:@supabase/supabase-js@2.117.2";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +16,11 @@ type Imagem = { media_type: string; data: string };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  // Confere o login aqui também, para a função continuar protegida mesmo com "Verify JWT" desligado.
+  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+  const { data: quem } = token ? await sb.auth.getUser(token) : { data: { user: null } };
+  if (!quem?.user) return resposta({ code: "funcao_login", message: "Entre no site para usar a leitura automática." }, 401);
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) return resposta({ code: "sampling_disabled", message: "Falta o segredo ANTHROPIC_API_KEY." }, 503);
 
