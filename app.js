@@ -201,7 +201,7 @@
   function tabResumo(o) {
     const vt = valorTotal(o), md = medido(o), cc = cronoCalc(o), cx = o.caixa || {};
     const pend = o.pendencias || [];
-    return `${blocoAndamento(o)}
+    return `${blocoAndamento(o)}${blocoRelatorios()}
       <div class="summary">
         <div class="tile"><div class="eyebrow">Valor com aditivos</div><div class="v num sm">${brl(vt)}</div></div>
         <div class="tile"><div class="eyebrow">Medido</div><div class="v num sm">${brl(md)}</div><div class="sub">${pctTxt(pct(md, vt))} do contrato</div></div>
@@ -814,6 +814,189 @@
     return novos.length;
   }
 
+  /* ---------- Relatórios em Word (papel timbrado 2025-2028) ---------- */
+  const FISCAL = { nome: "Higor Rodrigues de Souza", cargo: "Engenheiro Civil – CREA-GO 1017177278D-2", funcao: "Fiscal da Obra" };
+  const JSZIP = ["https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"];
+  const MODELO = window.CONTROLE_SITE ? { url: "modelos/papel-timbrado.docx" } : { url: "/_blob/0c0b5d47dcd5cdc1b254395f91d58c60", base64: true };
+  const MESES_EXT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  async function zipLib() {
+    if (window.JSZip) return window.JSZip;
+    for (const u of JSZIP) { try { await loadScript(u); if (window.JSZip) return window.JSZip; } catch (e) {} }
+    throw new Error("jszip");
+  }
+  const xe = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+  const W = {
+    run: (t, o = {}) => `<w:r><w:rPr>${o.b ? "<w:b/><w:bCs/>" : ""}${o.sz ? `<w:sz w:val="${o.sz}"/><w:szCs w:val="${o.sz}"/>` : ""}</w:rPr>${String(t ?? "").split("\n").map((l, i) => (i ? "<w:br/>" : "") + `<w:t xml:space="preserve">${xe(l)}</w:t>`).join("")}</w:r>`,
+    p: (runs, o = {}) => `<w:p><w:pPr>${o.keep ? "<w:keepNext/>" : ""}<w:spacing w:before="${o.before ?? 0}" w:after="${o.after ?? 120}" w:line="300" w:lineRule="auto"/><w:jc w:val="${o.jc || "both"}"/></w:pPr>${runs}</w:p>`,
+  };
+  const P = (t, o) => W.p(W.run(t, o), o);
+  const titulo = t => W.p(W.run(t, { b: true }), { jc: "center", after: 60 });
+  const secao = t => W.p(W.run(t, { b: true }), { jc: "left", before: 240, keep: true });
+  const campo = (k, v) => v === undefined || v === null || v === "" ? "" : W.p(W.run(k + ":", { b: true }) + W.run(" " + v), { jc: "left", after: 40 });
+  const item = t => W.p(W.run("– " + t), { jc: "both", after: 60 });
+  const quebra = () => `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
+  function tabela(cab, linhas, larg) {
+    const tot = 9070, ws = larg || cab.map(() => Math.floor(tot / cab.length));
+    const cel = (t, w, o = {}) => `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/>${o.cab ? `<w:shd w:val="clear" w:color="auto" w:fill="D9E2F3"/>` : ""}</w:tcPr>${W.p(W.run(t, { b: o.cab || o.b, sz: 18 }), { jc: o.r ? "right" : "left", after: 0 })}</w:tc>`;
+    const b = `<w:top w:val="single" w:sz="4" w:color="808080"/><w:left w:val="single" w:sz="4" w:color="808080"/><w:bottom w:val="single" w:sz="4" w:color="808080"/><w:right w:val="single" w:sz="4" w:color="808080"/><w:insideH w:val="single" w:sz="4" w:color="808080"/><w:insideV w:val="single" w:sz="4" w:color="808080"/>`;
+    return `<w:tbl><w:tblPr><w:tblW w:w="${tot}" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders>${b}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="70" w:type="dxa"/><w:right w:w="70" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${ws.map(w => `<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>` +
+      `<w:tr><w:trPr><w:tblHeader/></w:trPr>${cab.map((c, i) => cel(String(c).replace(/^>/, ""), ws[i], { cab: true, r: String(c).startsWith(">") })).join("")}</w:tr>` +
+      linhas.map(l => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${l.map((c, i) => cel(c && c.t !== undefined ? c.t : c, ws[i], { r: String(cab[i]).startsWith(">"), b: c && c.b })).join("")}</w:tr>`).join("") + `</w:tbl>` + P("", { after: 120 });
+  }
+  function assinatura(data) {
+    const [y, m, d] = data.split("-");
+    return P(`Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`, { jc: "right", before: 360, after: 720 }) +
+      P("_______________________________________________", { jc: "center", after: 0, keep: true }) +
+      P(FISCAL.nome, { jc: "center", after: 0, b: true, keep: true }) + P(FISCAL.cargo, { jc: "center", after: 0, keep: true }) + P(FISCAL.funcao, { jc: "center", after: 0 });
+  }
+  function identificacao(o) {
+    const cx = o.caixa || {};
+    return secao("1. IDENTIFICAÇÃO") + campo("Obra", o.nome) + campo("Objeto", o.objeto) + campo("Endereço", o.endereco) +
+      campo("Coordenadas", coordTxt(o)) + campo("Contratada", [o.empresa, o.cnpj ? "CNPJ " + o.cnpj : ""].filter(Boolean).join(", ")) +
+      campo("Contrato / instrumento", o.numero) + campo("Modalidade", o.modalidade) + campo("Fonte de recurso", o.fonte) +
+      campo("Contrato de repasse / operação", cx.operacao) + campo("Valor inicial", isNum(o.valor) ? brl(o.valor) : "") +
+      campo("Valor com aditivos", (o.aditivos || []).some(a => a.valor) ? brl(valorTotal(o)) : "") +
+      campo("Início", o.dataInicio ? dt(o.dataInicio) : "") + campo("Prazo original", o.prazoFinal ? dt(o.prazoFinal) : "") +
+      campo("Prazo vigente", prazoAtual(o) && prazoAtual(o) !== o.prazoFinal ? dt(prazoAtual(o)) : "") +
+      campo("Fiscal da obra", `${FISCAL.nome}, ${FISCAL.cargo}`);
+  }
+  function situacaoTxt(o, sit, perc) {
+    const vt = valorTotal(o), md = medido(o), cc = cronoCalc(o);
+    return campo("Situação", SIT[sit] || "Não informada") +
+      campo("Execução física", isNum(perc) ? `${String(perc).replace(".", ",")}% executado` : "não informada") +
+      campo("Execução financeira", `${brl(md)} medidos (${pctTxt(pct(md, vt))} do valor da obra); saldo a medir ${brl(vt - md)}`) +
+      campo("Cronograma", cc.status ? `${cc.status.txt} (referência ${mesTxt(cc.status.ref.mes)}: previsto ${brl(cc.status.ref.prevAc)}, medido ${brl(cc.status.ref.medAc)})` : "") +
+      campo("Prazo", prazoTxt(o).replace(/<[^>]+>/g, ""));
+  }
+  async function fotoParaDocx(f) {
+    const res = await fetch(blob(f.id)); if (!res.ok) throw new Error("foto");
+    const bmp = await createImageBitmap(await res.blob());
+    const k = Math.min(1, 1400 / Math.max(bmp.width, bmp.height));
+    const cv = document.createElement("canvas"); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+    cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
+    return { dados: await canvasBlob(cv), w: cv.width, h: cv.height };
+  }
+  async function anexoFotos(fotos, zip, rels, texto) {
+    if (!fotos.length) return "";
+    const cels = []; let n = 0;
+    for (const f of fotos) {
+      n++; let img = null;
+      try { img = await fotoParaDocx(f); } catch (e) {}
+      let desenho = W.run("(foto indisponível)");
+      if (img) {
+        const rid = "rIdFotoRel" + n, nome = `foto_rel_${n}.jpg`;
+        zip.file("word/media/" + nome, img.dados);
+        rels.push(`<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nome}"/>`);
+        const cx = 2736000, cy = Math.round(Math.min(cx * img.h / img.w, 3400000)), cxr = Math.round(cy * img.w / img.h);
+        const larg = Math.min(cx, cxr);
+        desenho = `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${larg}" cy="${cy}"/><wp:docPr id="${2000 + n}" name="Foto ${n}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${2000 + n}" name="${nome}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${larg}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+      }
+      cels.push(`<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/></w:tcPr>${W.p(desenho, { jc: "center", before: 120, after: 60 })}${W.p(W.run(`Foto ${n} – `, { b: true, sz: 20 }) + W.run((f.legenda || "Sem legenda.") + (f.data ? ` (${dt(f.data)})` : ""), { sz: 20 }), { jc: "center", after: 120 })}</w:tc>`);
+    }
+    if (cels.length % 2) cels.push(`<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/></w:tcPr><w:p/></w:tc>`);
+    let linhas = ""; for (let i = 0; i < cels.length; i += 2) linhas += `<w:tr><w:trPr><w:cantSplit/></w:trPr>${cels[i]}${cels[i + 1]}</w:tr>`;
+    return quebra() + titulo("ANEXO – REGISTRO FOTOGRÁFICO") + P(texto, { after: 240 }) +
+      `<w:tbl><w:tblPr><w:tblW w:w="9070" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="4535"/><w:gridCol w:w="4535"/></w:tblGrid>${linhas}</w:tbl>`;
+  }
+  async function montarDocx(corpo) {
+    const Z = await zipLib();
+    const res = await fetch(MODELO.url); if (!res.ok) throw new Error("modelo");
+    let bin;
+    if (MODELO.base64) { const s = atob((await res.text()).trim()); bin = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) bin[i] = s.charCodeAt(i); }
+    else bin = new Uint8Array(await res.arrayBuffer());
+    const zip = await Z.loadAsync(bin), rels = [];
+    const body = await corpo(zip, rels);
+    let doc = await zip.file("word/document.xml").async("string");
+    const ini = doc.indexOf("<w:body>") + 8, fim = doc.lastIndexOf("<w:sectPr");
+    doc = doc.slice(0, ini) + body + doc.slice(fim);
+    zip.file("word/document.xml", doc);
+    if (rels.length) {
+      const rp = "word/_rels/document.xml.rels"; const r = await zip.file(rp).async("string");
+      zip.file(rp, r.replace("</Relationships>", rels.join("") + "</Relationships>"));
+      const ct = await zip.file("[Content_Types].xml").async("string");
+      if (!/Extension="jpg"/i.test(ct)) zip.file("[Content_Types].xml", ct.replace("<Default ", '<Default Extension="jpg" ContentType="image/jpeg"/><Default '));
+    }
+    return zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+  }
+  function relatorioDiario(o, dia) {
+    return async (zip, rels) => {
+      const vist = (o.vistorias || []).filter(v => v.data === dia);
+      const ult = vist[vist.length - 1];
+      const meds = (o.medicoes || []).filter(m => m.data === dia);
+      const fotos = (o.fotos || []).filter(f => f.data === dia);
+      const pend = (o.pendencias || []).filter(p => !p.resolvida);
+      let s = titulo("RELATÓRIO DIÁRIO DE FISCALIZAÇÃO DE OBRA") + P(`Data: ${dt(dia)}`, { jc: "center", after: 360 });
+      s += identificacao(o);
+      s += secao("2. SITUAÇÃO DA OBRA") + situacaoTxt(o, ult?.situacao || o.situacao, isNum(ult?.percentual) ? ult.percentual : o.percentual);
+      s += secao("3. REGISTROS DO DIA");
+      if (vist.length) vist.forEach(v => { s += P(v.obs || `Vistoria realizada, obra ${(SIT[v.situacao] || "").toLowerCase()}.`); });
+      else if (dia === hojeISO() && o.observacoes) s += P(o.observacoes);
+      else s += P("Não há vistoria registrada nesta data.");
+      meds.forEach(m => { s += item(`Medição nº ${m.numero || "–"} lançada nesta data, no valor de ${brl(m.valor)}${m.obs ? `: ${m.obs}` : "."}`); });
+      if (fotos.length) s += P(`Foram registradas ${fotos.length} fotografia(s), apresentadas no anexo.`);
+      s += secao("4. PENDÊNCIAS EM ABERTO");
+      s += pend.length ? pend.map(p => item(p.texto + (p.prazo ? ` Prazo: ${dt(p.prazo)}.` : ""))).join("") : P("Não há pendências em aberto.");
+      s += assinatura(dia);
+      s += await anexoFotos(fotos, zip, rels, `Fotografias obtidas em ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      return s;
+    };
+  }
+  function relatorioCompleto(o, dia) {
+    return async (zip, rels) => {
+      const vt = valorTotal(o), md = medido(o), cc = cronoCalc(o);
+      const meds = [...(o.medicoes || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)) || Number(a.numero) - Number(b.numero));
+      const vist = [...(o.vistorias || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      const pend = o.pendencias || [], adit = o.aditivos || [], docs = o.documentos || [];
+      const fotos = [...(o.fotos || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      let n = 1, s = titulo("RELATÓRIO GERAL DE ACOMPANHAMENTO DA OBRA") + P(`Posição em ${dt(dia)}`, { jc: "center", after: 360 });
+      s += identificacao(o);
+      s += secao(`${++n}. SITUAÇÃO ATUAL`) + situacaoTxt(o, o.situacao, o.percentual) + (o.observacoes ? P(o.observacoes, { before: 120 }) : "");
+      s += secao(`${++n}. EXECUÇÃO FINANCEIRA`) + campo("Valor da obra", brl(vt)) + campo("Total medido", `${brl(md)} (${pctTxt(pct(md, vt))})`) + campo("Saldo a medir", brl(vt - md));
+      if (meds.length) { let ac = 0; s += P("", { after: 60 }) + tabela(["Nº", "Data", "Período", ">Valor", ">Acumulado", ">% obra"], meds.map(m => { ac += Number(m.valor || 0); return [m.numero || "", dt(m.data), m.periodoIni || m.periodoFim ? `${dt(m.periodoIni)} a ${dt(m.periodoFim)}` : "–", brl(m.valor), brl(ac), pctTxt(pct(ac, vt))]; }), [700, 1300, 2270, 1700, 1700, 1400]); }
+      else s += P("Nenhuma medição lançada até esta data.", { before: 120 });
+      s += secao(`${++n}. CRONOGRAMA FÍSICO-FINANCEIRO`);
+      if (cc.rows.length && cc.temPrev) {
+        s += P(cc.status ? `${cc.status.txt}.` : "");
+        s += tabela(["Mês", ">Previsto acumulado", ">Medido acumulado", ">Diferença"], cc.rows.map(r => { const passou = r.mes <= ym(hojeISO()); return [mesTxt(r.mes), brl(r.prevAc), passou ? brl(r.medAc) : "–", passou ? brl(r.medAc - r.prevAc) : "–"]; }), [1870, 2400, 2400, 2400]);
+      } else s += P("Cronograma previsto não lançado.");
+      if (adit.length) s += secao(`${++n}. ADITIVOS`) + tabela(["Nº", "Data", "Objeto", "Novo prazo", ">Valor"], adit.map(a => [a.numero || "", dt(a.data), a.descricao || "", dt(a.novoPrazo), a.valor ? brl(a.valor) : "–"]), [800, 1300, 4070, 1300, 1600]);
+      s += secao(`${++n}. VISTORIAS`);
+      s += vist.length ? tabela(["Data", "Situação", ">% exec.", "Observações"], vist.map(v => [dt(v.data), SIT[v.situacao] || "–", isNum(v.percentual) ? v.percentual + "%" : "–", v.obs || ""]), [1300, 1500, 1000, 5270]) : P("Nenhuma vistoria registrada.");
+      s += secao(`${++n}. PENDÊNCIAS`);
+      s += pend.length ? pend.map(p => item(p.texto + (p.prazo ? ` Prazo: ${dt(p.prazo)}.` : "") + (p.resolvida ? " (resolvida)" : " (em aberto)"))).join("") : P("Nenhuma pendência registrada.");
+      if (docs.length) s += secao(`${++n}. PROJETOS E DOCUMENTOS ARQUIVADOS`) + CATS.map(c => docs.filter(d => d.categoria === c).map(d => item(`${c}: ${d.titulo || "sem título"}${d.data ? ` (${dt(d.data)})` : ""}`)).join("")).join("");
+      s += P("É o relatório.", { before: 240 }) + assinatura(dia);
+      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas nas vistorias da obra${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      return s;
+    };
+  }
+  async function gerarRelatorio(tipo) {
+    const o = curObra(); if (!o) return;
+    const dia = state.relData || hojeISO();
+    state.busy = "rel-" + tipo; state.error = state.info = state.warn = ""; render();
+    try {
+      const arq = await montarDocx(tipo === "dia" ? relatorioDiario(o, dia) : relatorioCompleto(o, dia));
+      const nome = `${tipo === "dia" ? "Relatorio_Diario" : "Relatorio_Geral"}_${slug(o.nome).replace(/-/g, "_")}_${dia}.docx`;
+      if (state.downloads) await state.downloads.save({ filename: nome, data: arq });
+      else { const u = URL.createObjectURL(arq); const a = document.createElement("a"); a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
+      const reg = { data: dia, titulo: tipo === "dia" ? "Relatório diário de fiscalização" : "Relatório geral da obra", arquivo: nome };
+      if (canWrite()) await patch(curObra(), { relatorios: [...(curObra().relatorios || []).filter(r => r.arquivo !== nome), reg] }).catch(() => {});
+      state.info = `Relatório gerado: ${nome}. Ele também foi anotado em Vistorias e pendências > Relatórios emitidos.`;
+    } catch (e) {
+      if (e && e.code === "declined") state.info = "";
+      else state.error = "Não foi possível gerar o relatório agora. Verifique a internet e tente de novo.";
+    }
+    state.busy = ""; render();
+  }
+  function blocoRelatorios() {
+    return `<section class="blk"><header><h3>Relatórios em Word</h3></header>
+      <p class="small muted" style="margin:0 0 10px">Gera o arquivo .docx no papel timbrado da Prefeitura, com as fotos e a assinatura do fiscal, para você revisar e imprimir.</p>
+      <div class="rel-row"><label class="f">Data do relatório<input id="rel-data" type="date" data-bind="relData" value="${esc(state.relData || hojeISO())}"></label>
+        <button class="primary" data-act="rel-dia" ${state.busy ? "disabled" : ""}>${state.busy === "rel-dia" ? "Gerando…" : "Relatório do dia"}</button>
+        <button data-act="rel-obra" ${state.busy ? "disabled" : ""}>${state.busy === "rel-obra" ? "Gerando…" : "Relatório completo da obra"}</button></div>
+    </section>`;
+  }
+
   /* ---------- Eventos ---------- */
   app.addEventListener("click", async ev => {
     const t = ev.target.closest("button"); if (!t || t.disabled) return;
@@ -859,6 +1042,7 @@
     if (t.dataset.andSit) { andDraft(o).situacao = t.dataset.andSit; return render(); }
     if (t.dataset.andStep) { const d = andDraft(o); d.percentual = Math.max(0, Math.min(100, (Number(d.percentual) || 0) + Number(t.dataset.andStep))); return render(); }
     const a = t.dataset.act;
+    if (a === "rel-dia" || a === "rel-obra") return gerarRelatorio(a === "rel-dia" ? "dia" : "obra");
     if (a === "and-save") {
       const d = andDraft(o), p = Math.max(0, Math.min(100, Math.round((Number(d.percentual) || 0) * 10) / 10));
       if (!d.situacao) { state.error = "Escolha a situação da obra."; return render(); }

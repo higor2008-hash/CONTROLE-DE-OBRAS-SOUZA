@@ -166,6 +166,8 @@ textarea { min-height: 70px; resize: vertical; }
 .pct-num input { width: 76px; text-align: right; font-family: var(--mono); }
 .pct-quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; max-width: 360px; }
 .pct-quick button { font-family: var(--mono); font-weight: 500; }
+.rel-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.rel-row label.f { flex: 0 1 200px; }
 label.check { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0; font-size: 14px; cursor: pointer; }
 label.check input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
 @media (max-width: 640px) {
@@ -203,6 +205,7 @@ label.check input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
   .kv { grid-template-columns: 1fr; }
   .sit-opts { grid-template-columns: 1fr 1fr; }
   .pct-quick { max-width: none; }
+  .rel-row > * { flex: 1 1 100%; }
   .panel { padding: 12px; }
   .btns.end > button, .btns.end > .btn { flex: 1 1 auto; }
   .fotos { grid-template-columns: 1fr 1fr; gap: 8px; }
