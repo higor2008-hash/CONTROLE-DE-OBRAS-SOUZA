@@ -398,9 +398,9 @@
         ${fotos.length ? datas.map(d => `<div class="cat"><h5>Vistoria de ${dt(d)}</h5><div class="fotos">${fotos.filter(f => (f.data || "") === d).map(f => { n++; return `
           <figure class="foto" style="margin:0"><a href="${blob(f.id)}" target="_blank" rel="noopener"><img src="${blob(f.id)}" alt="${esc(f.legenda || "Foto " + n)}" loading="lazy"></a>
             <figcaption class="cap"><b>Foto ${n}</b>
-              ${canWrite() ? `<textarea id="leg-${esc(f.id)}" data-legenda="${esc(f.id)}" rows="2" placeholder="Legenda da foto" style="min-height:52px;font-size:13px">${esc(f.legenda || "")}</textarea>${yesNo("foto:" + f.id, "Excluir foto")}` : `<span>${esc(f.legenda || "")}</span>`}
+              ${canWrite() ? `<textarea id="leg-${esc(f.id)}" data-legenda="${esc(f.id)}" rows="2" placeholder="Legenda da foto" style="min-height:52px;font-size:13px">${esc(f.legenda || "")}</textarea><div class="btns">${state.sample ? `<button class="sm" data-descrever="${esc(f.id)}" ${state.busy ? "disabled" : ""}>${state.busy === "desc:" + f.id ? "Descrevendo…" : f.legenda ? "Refazer legenda" : "Descrever com Claude"}</button>` : ""}${yesNo("foto:" + f.id, "Excluir foto")}</div>` : `<span>${esc(f.legenda || "")}</span>`}
             </figcaption></figure>`; }).join("")}</div></div>`).join("")
-          : `<div class="muted">Nenhuma foto lançada. Adicione as fotos de cada vistoria com a data e escreva a legenda de cada uma.</div>`}
+          : `<div class="muted">Nenhuma foto lançada. Adicione as fotos de cada vistoria com a data${state.sample ? " e o Claude escreve a legenda de cada uma para você conferir" : " e escreva a legenda de cada uma"}.</div>`}
       </section>`;
   }
 
@@ -637,6 +637,33 @@
     }
     return out;
   }
+  /* Legenda automática das fotos: o Claude olha a foto e escreve no estilo do relatório fotográfico */
+  async function descreverFoto(o, arquivo, data) {
+    const [img] = await paraImagens([arquivo], 1);
+    if (!img) throw { code: "image_rejected" };
+    const r = await state.sample(
+      `Você ajuda um fiscal de obras públicas de uma prefeitura a montar o relatório fotográfico de vistoria.\n` +
+      `Obra: ${o.nome}. Objeto: ${o.objeto || "não informado"}. Situação: ${SIT[o.situacao] || "não informada"}. Data da foto: ${dt(data)}.\n` +
+      `Escreva a legenda desta foto em português, em 1 ou 2 frases curtas e objetivas, no estilo de relatório técnico de fiscalização: ` +
+      `o que aparece (serviço, etapa, elemento construtivo, material) e qualquer problema visível (falha de execução, risco, abandono, falta de segurança ou limpeza). ` +
+      `Não invente medidas, quantidades nem fatos que não dá para ver na foto. Responda só com a legenda, sem aspas e sem começar com "Foto".`,
+      { images: [img] });
+    return String((r && r.text) || "").trim().replace(/^["“']+|["”']+$/g, "").slice(0, 600);
+  }
+  async function legendarFotos(pares) {
+    let feitas = 0, erro = null;
+    for (let i = 0; i < pares.length; i++) {
+      state.info = pares.length > 1 ? `Escrevendo a legenda da foto ${i + 1} de ${pares.length}…` : "Escrevendo a legenda da foto…"; render();
+      try {
+        const o = curObra(); const leg = await descreverFoto(o, pares[i].arquivo, pares[i].data);
+        if (!leg) continue;
+        const atual = curObra();
+        await patch(atual, { fotos: (atual.fotos || []).map(f => f.id === pares[i].id && (!f.legenda || pares[i].trocar) ? { ...f, legenda: leg } : f) });
+        feitas++;
+      } catch (e) { erro = e; if (e && (e.code === "sampling_disabled" || e.code === "not_granted")) break; }
+    }
+    return { feitas, erro };
+  }
   const sampleErro = e => ({ sampling_disabled: "A leitura automática ainda não foi configurada no servidor (falta a chave da API). Preencha à mão.", not_granted: "A leitura automática não foi autorizada. Preencha os valores à mão.", rate_limited: "Muitas leituras seguidas. Espere um pouco e tente de novo.",
     invalid_json: "Não consegui entender o arquivo. Preencha os valores à mão.", image_rejected: "A imagem não pôde ser lida. Tente uma foto mais nítida." }[e && e.code] || "Não foi possível ler o arquivo agora. Preencha os valores à mão.");
 
@@ -800,6 +827,18 @@
     if (t.dataset.tab) { state.preview = null; state.tab = t.dataset.tab; state.error = state.info = state.warn = ""; state.confirm = ""; return render(); }
     if (t.dataset.add) { state.draft[t.dataset.add] = [...(state.draft[t.dataset.add] || []), { ...LISTAS[t.dataset.add].novo }]; return render(); }
     if (t.dataset.rem) { state.draft[t.dataset.rem].splice(Number(t.dataset.i), 1); return render(); }
+    if (t.dataset.descrever) {
+      const f = (o.fotos || []).find(x => x.id === t.dataset.descrever); if (!f) return;
+      state.busy = "desc:" + f.id; state.error = state.warn = ""; render();
+      try {
+        const res = await fetch(blob(f.id)); if (!res.ok) throw new Error("foto");
+        const arq = new File([await res.blob()], f.nome || "foto.jpg", { type: f.tipo || "image/jpeg" });
+        const { feitas, erro } = await legendarFotos([{ id: f.id, data: f.data, arquivo: arq, trocar: true }]);
+        state.info = feitas ? "Legenda escrita pelo Claude. Confira e corrija se precisar." : "";
+        if (!feitas) state.error = erro ? sampleErro(erro) : "Não consegui descrever esta foto.";
+      } catch (e) { state.info = ""; state.error = "Não consegui abrir esta foto para descrever."; }
+      state.busy = ""; return render();
+    }
     if (t.dataset.ask) { state.confirm = t.dataset.ask; return render(); }
     if (t.dataset.no) { state.confirm = ""; return render(); }
     if (t.dataset.unpend) { (t.dataset.unpend === "med" ? state.medFiles : state.docFiles).splice(Number(t.dataset.i), 1); return render(); }
@@ -936,6 +975,12 @@
         for (const f of files) { const r = await subir(f); novas.push({ id: r.id, nome: r.nome, tipo: r.tipo, data: state.fotoData || hojeISO(), legenda: "" }); }
         await patch(curObra(), { fotos: [...(curObra().fotos || []), ...novas] });
         state.info = `${novas.length} foto(s) adicionada(s). Escreva a legenda de cada uma.`;
+        if (state.sample) {
+          state.busy = "legenda";
+          const { feitas, erro } = await legendarFotos(novas.map((f, i) => ({ id: f.id, data: f.data, arquivo: files[i] })));
+          state.info = feitas ? `${novas.length} foto(s) adicionada(s) e ${feitas} legenda(s) escrita(s) pelo Claude. Confira e corrija se precisar.` : `${novas.length} foto(s) adicionada(s). Escreva a legenda de cada uma.`;
+          if (erro && !feitas) state.warn = erro.code === "sampling_disabled" ? "A legenda automática ainda não está ligada (falta a chave da API no servidor). Escreva a legenda à mão." : "Não consegui escrever a legenda automática agora. Escreva à mão ou use o botão Descrever com Claude.";
+        }
       } catch (e) { state.error = erroTxt(e, "enviar as fotos"); }
       state.busy = ""; return render();
     }
