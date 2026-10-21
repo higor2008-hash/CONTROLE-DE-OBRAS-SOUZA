@@ -15,7 +15,7 @@
   const app = document.getElementById("app");
   const state = { db: null, assets: null, sample: null, imgLimits: null, obras: [], loaded: false, view: "lista", tab: "resumo",
     filtro: "todas", busca: "", draft: null, editId: null, error: "", info: "", warn: "", readOnly: false, confirm: "",
-    med: null, medFiles: [], doc: null, docFiles: [], cron: null, fotoData: "", busy: "", preview: null, downloads: null, impFiles: [] };
+    med: null, medFiles: [], doc: null, docFiles: [], cron: null, fotoData: "", busy: "", preview: null, downloads: null, impFiles: [], and: null };
 
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const isNum = v => v !== null && v !== undefined && v !== "" && !isNaN(Number(v));
@@ -107,8 +107,16 @@
   function render() {
     const y = window.scrollY;
     if (state.view === "editar") { renderForm(); return; }
-    if (state.view !== "lista") { const o = curObra(); if (o) { renderFicha(o); window.scrollTo(0, y); return; } state.view = "lista"; }
+    if (state.view !== "lista") { const o = curObra(); if (o) { renderFicha(o); rotularTabelas(); window.scrollTo(0, y); return; } state.view = "lista"; }
     renderLista();
+  }
+  /* No celular as tabelas viram cartões; cada célula recebe o nome da sua coluna */
+  function rotularTabelas() {
+    app.querySelectorAll(".tbl table").forEach(tb => {
+      const nomes = []; tb.querySelectorAll("thead th").forEach(th => { for (let i = 0; i < (th.colSpan || 1); i++) nomes.push(th.textContent.trim()); });
+      tb.classList.add("cards");
+      tb.querySelectorAll("tbody tr, tfoot tr").forEach(tr => { let i = 0; [...tr.cells].forEach(td => { if (nomes[i] && td.colSpan === 1) td.dataset.label = nomes[i]; i += td.colSpan || 1; }); });
+    });
   }
 
   /* ---------- Lista ---------- */
@@ -162,7 +170,7 @@
       <div class="ficha-head">
         <div><div class="eyebrow">Ficha da obra</div><h2>${esc(o.nome)}</h2>
           <div class="muted" style="margin-top:4px">${esc(o.objeto || "")}</div></div>
-        <div style="display:grid;gap:8px;justify-items:end">${pill(o.situacao)}${canWrite() ? `<button data-act="editar">Editar dados</button>` : ""}</div>
+        <div class="head-acts">${pill(o.situacao)}${canWrite() ? `<button data-act="editar">Editar dados</button>` : ""}</div>
       </div>
       <nav class="tabs" role="tablist">${TABS.map(([k, t]) => `<button role="tab" data-tab="${k}" aria-selected="${state.tab === k}">${t}${n[k] ? `<span class="count">${n[k]}</span>` : ""}</button>`).join("")}</nav>
       ${msgs()}${previewHtml()}${corpo(o)}
@@ -170,10 +178,30 @@
   }
 
   const kv = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`;
+  /* Atualização rápida da situação e do % executado, pensada para usar no celular durante a vistoria */
+  function andDraft(o) {
+    if (!state.and || state.and.id !== o.id) state.and = { id: o.id, situacao: o.situacao || "", percentual: isNum(o.percentual) ? Number(o.percentual) : 0, obs: o.observacoes || "", vistoria: false };
+    return state.and;
+  }
+  function blocoAndamento(o) {
+    if (!canWrite()) return "";
+    const a = andDraft(o), p = Math.max(0, Math.min(100, Number(a.percentual) || 0));
+    return `<section class="blk andamento"><header><h3>Situação e andamento</h3></header>
+      <div class="lbl">Situação da obra</div>
+      <div class="sit-opts">${Object.entries(SIT).map(([k, t]) => `<button type="button" class="sit-opt" data-and-sit="${k}" aria-pressed="${a.situacao === k}"><span class="dot bg-${k}"></span>${t}</button>`).join("")}</div>
+      <div class="lbl" style="margin-top:16px">% executado (físico)</div>
+      <div class="pct-row"><input type="range" id="and-range" min="0" max="100" step="1" value="${p}" data-and-pct="1" aria-label="% executado">
+        <span class="pct-num"><input type="number" id="and-num" min="0" max="100" step="1" inputmode="numeric" value="${p}" data-and-pct="1" aria-label="% executado em número"><span>%</span></span></div>
+      <div class="pct-quick">${[-5, -1, 1, 5].map(d => `<button type="button" data-and-step="${d}">${d > 0 ? "+" : "−"}${Math.abs(d)}%</button>`).join("")}</div>
+      <label class="f" style="margin-top:16px">Situação atual / observações<textarea id="and-obs" data-and-obs="1" rows="3" placeholder="O que foi visto na obra">${esc(a.obs)}</textarea></label>
+      <label class="check"><input type="checkbox" id="and-vist" data-and-vist="1" ${a.vistoria ? "checked" : ""}><span>Registrar também como vistoria de hoje (${dt(hojeISO())})</span></label>
+      <div class="btns end"><button class="primary" data-act="and-save" ${state.busy ? "disabled" : ""}>${state.busy === "and" ? "Salvando…" : "Salvar situação"}</button></div>
+    </section>`;
+  }
   function tabResumo(o) {
     const vt = valorTotal(o), md = medido(o), cc = cronoCalc(o), cx = o.caixa || {};
     const pend = o.pendencias || [];
-    return `
+    return `${blocoAndamento(o)}
       <div class="summary">
         <div class="tile"><div class="eyebrow">Valor com aditivos</div><div class="v num sm">${brl(vt)}</div></div>
         <div class="tile"><div class="eyebrow">Medido</div><div class="v num sm">${brl(md)}</div><div class="sub">${pctTxt(pct(md, vt))} do contrato</div></div>
@@ -768,7 +796,7 @@
     if (t.dataset.ver) return abrirPreview(t.dataset.ver, t.dataset.nome);
     if (t.dataset.aba) { state.preview.sheet = Number(t.dataset.aba); return render(); }
     if (t.dataset.filtro) { state.filtro = t.dataset.filtro; return render(); }
-    if (t.dataset.abrir) { try { history.replaceState(null, "", "#" + t.dataset.abrir); } catch (e) {} state.tab = "resumo"; state.med = null; state.doc = null; state.cron = null; state.preview = null; return go(t.dataset.abrir); }
+    if (t.dataset.abrir) { try { history.replaceState(null, "", "#" + t.dataset.abrir); } catch (e) {} state.tab = "resumo"; state.med = null; state.doc = null; state.cron = null; state.preview = null; state.and = null; return go(t.dataset.abrir); }
     if (t.dataset.tab) { state.preview = null; state.tab = t.dataset.tab; state.error = state.info = state.warn = ""; state.confirm = ""; return render(); }
     if (t.dataset.add) { state.draft[t.dataset.add] = [...(state.draft[t.dataset.add] || []), { ...LISTAS[t.dataset.add].novo }]; return render(); }
     if (t.dataset.rem) { state.draft[t.dataset.rem].splice(Number(t.dataset.i), 1); return render(); }
@@ -789,7 +817,19 @@
       } catch (e) { state.error = erroTxt(e, "excluir"); }
       return render();
     }
+    if (t.dataset.andSit) { andDraft(o).situacao = t.dataset.andSit; return render(); }
+    if (t.dataset.andStep) { const d = andDraft(o); d.percentual = Math.max(0, Math.min(100, (Number(d.percentual) || 0) + Number(t.dataset.andStep))); return render(); }
     const a = t.dataset.act;
+    if (a === "and-save") {
+      const d = andDraft(o), p = Math.max(0, Math.min(100, Math.round((Number(d.percentual) || 0) * 10) / 10));
+      if (!d.situacao) { state.error = "Escolha a situação da obra."; return render(); }
+      const mud = { situacao: d.situacao, percentual: p, observacoes: d.obs };
+      if (d.vistoria) mud.vistorias = [...(o.vistorias || []), { data: hojeISO(), situacao: d.situacao, percentual: p, obs: d.obs }];
+      state.busy = "and"; state.error = state.info = ""; render();
+      try { await patch(o, mud); state.and = null; state.info = d.vistoria ? "Situação salva e vistoria de hoje registrada." : "Situação salva."; }
+      catch (e) { state.error = erroTxt(e, "salvar a situação"); }
+      state.busy = ""; return render();
+    }
     if (a === "prev-fechar") { state.preview = null; return render(); }
     if (a === "prev-baixar") return baixarOriginal();
     if (a === "voltar") { try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} return go("lista"); }
@@ -858,6 +898,13 @@
   app.addEventListener("input", ev => {
     const el = ev.target;
     if (el.id === "busca") { state.busca = el.value; state._focusBusca = true; return renderLista(); }
+    if (el.dataset.andPct) {
+      const d = andDraft(curObra()); d.percentual = el.value;
+      const outro = document.getElementById(el.id === "and-range" ? "and-num" : "and-range"); if (outro) outro.value = el.value;
+      return;
+    }
+    if (el.dataset.andObs) { andDraft(curObra()).obs = el.value; return; }
+    if (el.dataset.andVist) { andDraft(curObra()).vistoria = el.checked; return; }
     if (el.dataset.bind) { const [obj, k] = el.dataset.bind.split("."); if (k) { if (state[obj]) state[obj][k] = el.value; } else state[obj] = el.value; return; }
     if (el.dataset.cron !== undefined) { state.cron.linhas[Number(el.dataset.cron)][el.dataset.k] = el.value; return; }
     if (!state.draft) return;
@@ -869,6 +916,8 @@
 
   app.addEventListener("change", async ev => {
     const el = ev.target; const o = curObra();
+    if (el.dataset.andVist) { andDraft(o).vistoria = el.checked; return; }
+    if (el.dataset.andPct || el.dataset.andObs) return;
     if (el.dataset.bind) { const [obj, k] = el.dataset.bind.split("."); if (k) { if (state[obj]) state[obj][k] = el.value; } else state[obj] = el.value; return; }
     if (el.dataset.cron !== undefined) { state.cron.linhas[Number(el.dataset.cron)][el.dataset.k] = el.value; return render(); }
     if (el.dataset.impcat !== undefined) { state.impFiles[Number(el.dataset.impcat)].cat = el.value; return; }
