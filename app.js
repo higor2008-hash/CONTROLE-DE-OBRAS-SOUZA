@@ -107,10 +107,15 @@
   function render() {
     const y = window.scrollY;
     if (state.view === "editar") { renderForm(); return; }
-    if (state.view !== "lista") { const o = curObra(); if (o) { renderFicha(o); rotularTabelas(); window.scrollTo(0, y); return; } state.view = "lista"; }
+    if (state.view !== "lista") { const o = curObra(); if (o) { renderFicha(o); rotularTabelas(); mostrarAba(); window.scrollTo(0, y); return; } state.view = "lista"; }
     renderLista();
   }
   /* No celular as tabelas viram cartões; cada célula recebe o nome da sua coluna */
+  // No celular a barra de abas rola para o lado: mantém a aba aberta visível.
+  function mostrarAba() {
+    const nav = app.querySelector(".tabs"), ab = nav && nav.querySelector('[aria-selected="true"]');
+    if (ab) { const r = ab.getBoundingClientRect(), n = nav.getBoundingClientRect(); nav.scrollLeft += r.left - n.left - (n.width - r.width) / 2; }
+  }
   function rotularTabelas() {
     app.querySelectorAll(".tbl table").forEach(tb => {
       const nomes = []; tb.querySelectorAll("thead th").forEach(th => { for (let i = 0; i < (th.colSpan || 1); i++) nomes.push(th.textContent.trim()); });
@@ -666,7 +671,7 @@
   }
   const sampleErro = e => ({ sampling_disabled: "A leitura automática ainda não foi configurada no servidor: a função ler-documento existe, mas falta a chave ANTHROPIC_API_KEY em Edge Functions > Secrets (ou a chave está errada).",
     funcao_ausente: "A leitura automática ainda não foi configurada: a função ler-documento não foi encontrada no Supabase (Edge Functions). Confira se ela foi criada com esse nome exato.",
-    funcao_login: "A função ler-documento recusou o acesso. Saia e entre de novo no site; se continuar, desligue Verify JWT na função ler-documento no Supabase.", not_granted: "A leitura automática não foi autorizada. Preencha os valores à mão.", rate_limited: "Muitas leituras seguidas. Espere um pouco e tente de novo.",
+    funcao_login: "Sua sessão expirou. Saia e entre de novo no site.", not_granted: "A leitura automática não está liberada para o seu usuário. Preencha os valores à mão.", rate_limited: "Muitas leituras seguidas. Espere um pouco e tente de novo.",
     invalid_json: "Não consegui entender o arquivo. Preencha os valores à mão.", image_rejected: "A imagem não pôde ser lida. Tente uma foto mais nítida." }[e && e.code] || "Não foi possível ler o arquivo agora. Preencha os valores à mão.");
 
   async function lerMedicao() {

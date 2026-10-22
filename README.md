@@ -18,7 +18,7 @@ Endereço do site depois de publicado: **https://higor2008-hash.github.io/CONTRO
 
 1. Crie uma conta em <https://supabase.com> e clique em **New project**. Escolha um nome (ex.: `controle-obras`), uma senha forte para o banco e a região **South America (São Paulo)**.
 2. No menu do projeto, abra **SQL Editor**, clique em **New query**, cole todo o conteúdo do arquivo [`supabase/schema.sql`](supabase/schema.sql) e clique em **Run**. Isso cria a tabela das obras, a pasta de arquivos e já traz o Centro de Especialidades e o CMEI cadastrados.
-3. Em **Authentication > Users**, clique em **Add user > Create new user**, coloque seu e-mail e uma senha e marque **Auto Confirm User**. Repita para cada pessoa que vai usar o site.
+3. Em **Authentication > Users**, clique em **Add user > Create new user**, coloque seu e-mail e uma senha e marque **Auto Confirm User**. Esse primeiro usuário vira o administrador. As outras pessoas você cadastra depois pelo próprio site, no botão **Equipe** (no fim da página), escolhendo o papel de cada uma: Administrador, Editor ou Só leitura.
 4. Em **Authentication > Sign In / Providers**, desligue **Allow new users to sign up**. Assim só entra quem você cadastrou.
 5. Em **Project Settings > API**, copie a **Project URL** e a chave **anon public**.
 
@@ -38,7 +38,7 @@ Sem esta etapa o site funciona normalmente, só que os campos são preenchidos �
 2. No Supabase, abra **Edge Functions > Deploy a new function > Via Editor**. Dê o nome `ler-documento`, apague o código de exemplo, cole o conteúdo de [`supabase/functions/ler-documento/index.ts`](supabase/functions/ler-documento/index.ts) e clique em **Deploy**.
 3. Em **Edge Functions > Secrets**, adicione o segredo `ANTHROPIC_API_KEY` com a chave criada no passo 1.
 
-A chave fica guardada só no Supabase e nunca aparece no site. Só usuários logados conseguem usar a leitura.
+A chave fica guardada só no Supabase e nunca aparece no site. Só administradores e editores ativos da equipe conseguem usar a leitura, com limite de 30 leituras a cada 10 minutos e 300 por dia por pessoa.
 
 ## Bom saber
 
@@ -54,3 +54,12 @@ A chave fica guardada só no Supabase e nunca aparece no site. Só usuários log
 - `config.js`: endereço e chave pública do Supabase.
 - `supabase/schema.sql`: estrutura do banco e obras iniciais.
 - `supabase/functions/ler-documento/index.ts`: função que lê documentos com o Claude.
+
+## Segurança
+
+- Só entra quem está ativo na tabela `equipe`. Papéis: **Administrador** (vê, edita e cadastra pessoas), **Editor** (vê e edita) e **Só leitura**.
+- As permissões valem no próprio banco (RLS), não só na tela: um leitor não consegue alterar nada mesmo chamando o Supabase direto.
+- Ninguém é apagado: desativar uma pessoa bloqueia o login e mantém o histórico.
+- O login trava por alguns minutos depois de 5 senhas erradas seguidas, além dos limites do próprio Supabase (**Authentication > Rate Limits**).
+- As funções `ler-documento` e `equipe` conferem o login e o papel, têm limite de uso por pessoa e devolvem só mensagens genéricas de erro (os detalhes ficam em **Edge Functions > Logs**).
+- O site só usa consultas parametrizadas do supabase-js e funções SQL sem SQL dinâmico, então não há ponto de entrada para SQL injection.
