@@ -82,7 +82,7 @@
       const ext = ((arquivo.name || "").match(/\.[A-Za-z0-9]{1,8}$/) || [""])[0].toLowerCase();
       const id = crypto.randomUUID() + ext;
       const { error } = await sb.storage.from(BUCKET).upload(id, arquivo, { contentType: type, upsert: false });
-      if (error) throw { code: /size|large|exceed/i.test(error.message) ? "too_large" : /quota/i.test(error.message) ? "quota_or_state" : "upstream_error", message: error.message };
+      if (error) throw { code: /mime|type/i.test(error.message) ? "unsupported_type" : /size|large|exceed/i.test(error.message) ? "too_large" : /quota/i.test(error.message) ? "quota_or_state" : "upstream_error", message: error.message };
       return { id, url: window.CONTROLE_SITE.fileUrl(id), contentType: type, sizeBytes: arquivo.size };
     },
     async delete(id) { await sb.storage.from(BUCKET).remove([id]); },

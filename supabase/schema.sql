@@ -37,6 +37,23 @@ create policy "logados enviam arquivos" on storage.objects for insert to authent
 create policy "logados alteram arquivos" on storage.objects for update to authenticated using (bucket_id = 'arquivos');
 create policy "logados apagam arquivos" on storage.objects for delete to authenticated using (bucket_id = 'arquivos');
 
+-- Segurança extra: visitantes sem login não têm acesso à tabela, ninguém apaga a tabela inteira
+-- e o bucket só aceita os tipos de arquivo usados pelo site (nada de HTML, SVG ou scripts).
+revoke all on table public.obras from anon;
+revoke truncate, references, trigger on table public.obras from authenticated;
+update storage.buckets set allowed_mime_types = array[
+  'image/jpeg','image/png','image/webp','image/gif','image/heic','image/heif',
+  'application/pdf','text/plain','text/csv',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel.sheet.macroEnabled.12',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/vnd.oasis.opendocument.text',
+  'application/octet-stream'
+] where id = 'arquivos';
+
 -- Obras já cadastradas (copiadas do primeiro site). Não substitui se já existirem.
 insert into public.obras (id, data) values
   ('centro-de-especialidades', $obra${"aditivos": [], "atualizadoEm": "2026-10-19T19:40:00.000Z", "caixa": {"valorPO": 22000}, "cnpj": "18.257.984/0001-56", "dataInicio": "2026-04-16", "empresa": "Rogerio Garcia da Silva Mendes", "endereco": "Anexo da Câmara Municipal, Edealina-GO", "fonte": "Fundo Municipal de Saúde", "lat": -17.425833, "lng": -49.66, "modalidade": "Compra direta, sem instrumento contratual", "nome": "Centro de Especialidades (Anexo da Câmara Municipal)", "numero": "NFS-e nº 112 de 12/11/2025", "objeto": "Paredes em gesso acartonado (115,81 m) com lã de vidro para isolamento acústico (115,81 m) e 4 conjuntos de porta completa e montada", "observacoes": "Valor de R$ 22.000,00 pago integralmente em dezembro de 2025, antes do início. Execução adiada cerca de 6 meses por falta de entrega do imóvel pela Câmara; autorizada em 16/04/2026.\nNa vistoria de 17/10/2026 as paredes estavam sendo fechadas sem a manta de lã de vidro. Fechamento das paredes paralisado; prazo final e improrrogável em 19 e 20/10/2026. Se não concluir, encaminhar à Procuradoria Jurídica (Lei 14.133/2021).", "pendencias": [{"prazo": "2026-10-20", "resolvida": false, "texto": "Retirar as chapas fixadas sem manta (fotos 11 a 14) e instalar a lã de vidro, sem ônus ao Município"}, {"prazo": "2026-10-20", "resolvida": false, "texto": "Concluir integralmente os serviços (paredes, juntas e 4 portas)"}, {"prazo": "2026-10-21", "resolvida": false, "texto": "Se não concluído até 20/10, encaminhar o caso à Procuradoria Jurídica"}], "percentual": null, "prazoFinal": "2026-10-20", "relatorios": [{"arquivo": "relatorios/Relatorio_Obra_em_Atraso_Centro_de_Especialidades.docx", "data": "2026-10-19", "titulo": "Relatório técnico de obra em atraso"}], "situacao": "paralisada", "valor": 22000, "vistorias": [{"data": "2026-10-17", "obs": "Paredes sendo fechadas sem manta de isolamento acústico. Serviço de fechamento paralisado e contratada notificada.", "percentual": null, "situacao": "paralisada"}]}$obra$::jsonb),
