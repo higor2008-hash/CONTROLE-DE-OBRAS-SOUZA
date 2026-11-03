@@ -4,7 +4,7 @@
   const CATS = ["Projeto arquitetônico", "Projeto estrutural", "Projeto elétrico", "Projeto hidrossanitário", "Outros projetos",
     "PO / Planilha orçamentária", "Referências Caixa / SINAPI", "Cronograma físico-financeiro", "Memorial descritivo",
     "ART / RRT", "Contrato e aditivos", "Outros documentos"];
-  const TABS = [["resumo", "Resumo"], ["documentos", "Projetos e documentos"], ["medicoes", "Medições"], ["cronograma", "Cronograma"], ["fotos", "Fotos"], ["vistorias", "Vistorias e pendências"]];
+  const TABS = [["resumo", "Resumo"], ["diario", "Diário de obra"], ["servicos", "Serviços"], ["documentos", "Projetos e documentos"], ["medicoes", "Medições"], ["cronograma", "Cronograma"], ["fotos", "Fotos"], ["vistorias", "Vistorias e pendências"], ["notificacoes", "Notificações e prazos"]];
   const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
   const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   const SHEETJS = ["https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"];
@@ -15,7 +15,7 @@
   const app = document.getElementById("app");
   const state = { db: null, assets: null, sample: null, imgLimits: null, obras: [], loaded: false, view: "lista", tab: "resumo",
     filtro: "todas", busca: "", draft: null, editId: null, error: "", info: "", warn: "", readOnly: false, confirm: "",
-    med: null, medFiles: [], doc: null, docFiles: [], cron: null, fotoData: "", busy: "", preview: null, downloads: null, impFiles: [], and: null };
+    med: null, medFiles: [], reg: null, todosAlertas: false, doc: null, docFiles: [], cron: null, fotoData: "", busy: "", preview: null, downloads: null, impFiles: [], and: null };
 
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const isNum = v => v !== null && v !== undefined && v !== "" && !isNaN(Number(v));
@@ -146,6 +146,7 @@
         <div class="tile"><div class="eyebrow">Pendências abertas</div><div class="v num">${obras.reduce((s, o) => s + pendAbertas(o), 0)}</div></div>
         <div class="tile"><div class="eyebrow">Valor em execução</div><div class="v num sm">${brl(ativos.reduce((s, o) => s + valorTotal(o), 0))}</div><div class="sub">Medido ${brl(ativos.reduce((s, o) => s + medido(o), 0))}</div></div>
       </div>
+      ${blocoAlertas(obras.flatMap(alertas), true)}
       <div class="filters">
         ${["todas", "andamento", "atrasada", "paralisada", "nao_iniciada", "concluida"].map(k =>
           `<button class="chip" data-filtro="${k}" aria-pressed="${state.filtro === k}">${k === "todas" ? "Todas" : SIT[k]}</button>`).join("")}
@@ -168,8 +169,8 @@
 
   /* ---------- Ficha ---------- */
   function renderFicha(o) {
-    const n = { documentos: (o.documentos || []).length, medicoes: (o.medicoes || []).length, fotos: (o.fotos || []).length, vistorias: (o.vistorias || []).length + pendAbertas(o) };
-    const corpo = { resumo: tabResumo, documentos: tabDocumentos, medicoes: tabMedicoes, cronograma: tabCronograma, fotos: tabFotos, vistorias: tabVistorias }[state.tab] || tabResumo;
+    const n = { diario: (o.diario || []).length, servicos: (o.servicos || []).length, notificacoes: (o.notificacoes || []).length + (o.prazos || []).length, documentos: (o.documentos || []).length, medicoes: (o.medicoes || []).length, fotos: (o.fotos || []).length, vistorias: (o.vistorias || []).length + pendAbertas(o) };
+    const corpo = { resumo: tabResumo, diario: tabDiario, servicos: tabServicos, notificacoes: tabNotificacoes, documentos: tabDocumentos, medicoes: tabMedicoes, cronograma: tabCronograma, fotos: tabFotos, vistorias: tabVistorias }[state.tab] || tabResumo;
     app.innerHTML = header() + `
       <button class="ghost back" data-act="voltar">← Todas as obras</button>
       <div class="ficha-head">
@@ -206,7 +207,7 @@
   function tabResumo(o) {
     const vt = valorTotal(o), md = medido(o), cc = cronoCalc(o), cx = o.caixa || {};
     const pend = o.pendencias || [];
-    return `${blocoAndamento(o)}${blocoRelatorios()}
+    return `${blocoAlertas(alertas(o), false)}${blocoAndamento(o)}${blocoRelatorios()}
       <div class="summary">
         <div class="tile"><div class="eyebrow">Valor com aditivos</div><div class="v num sm">${brl(vt)}</div></div>
         <div class="tile"><div class="eyebrow">Medido</div><div class="v num sm">${brl(md)}</div><div class="sub">${pctTxt(pct(md, vt))} do contrato</div></div>
@@ -407,6 +408,150 @@
             </figcaption></figure>`; }).join("")}</div></div>`).join("")
           : `<div class="muted">Nenhuma foto lançada. Adicione as fotos de cada vistoria com a data${state.sample ? " e o Claude escreve a legenda de cada uma para você conferir" : " e escreva a legenda de cada uma"}.</div>`}
       </section>`;
+  }
+
+  /* ---------- Registros da obra: diário, serviços, notificações e prazos ---------- */
+  const CLIMA = ["Bom", "Nublado", "Chuva fraca", "Chuva forte (sem trabalho)"];
+  const ETAPAS_PADRAO = ["Serviços preliminares e canteiro", "Movimento de terra", "Fundações", "Estrutura", "Alvenaria e vedações", "Cobertura",
+    "Instalações hidrossanitárias", "Instalações elétricas", "Esquadrias", "Revestimentos e pisos", "Pintura", "Louças, metais e acabamentos", "Serviços complementares e limpeza"];
+  const SIT_NOT = { aguardando: "Aguardando resposta", respondida: "Respondida", atendida: "Atendida", sem_resposta: "Sem resposta" };
+  const TIPOS_PRAZO = ["ART / RRT", "Alvará de construção", "Seguro-garantia / caução", "Licença ambiental", "Vigência do contrato", "Garantia da obra", "Outro"];
+  const REG = {
+    diario: { nome: "registro do diário", novo: () => ({ data: hojeISO(), climaManha: "Bom", climaTarde: "Bom", efetivo: "", equipe: "", equipamentos: "", servicos: "", ocorrencias: "" }),
+      campos: [["data", "Data", "date"], ["climaManha", "Tempo de manhã", CLIMA], ["climaTarde", "Tempo à tarde", CLIMA], ["efetivo", "Trabalhadores na obra", "number"],
+        ["equipe", "Equipe (funções)", "text", "Ex.: 1 encarregado, 4 pedreiros, 6 serventes"], ["equipamentos", "Equipamentos e materiais recebidos", "text", "Ex.: betoneira, 2 caminhões de areia"],
+        ["servicos", "Serviços executados", "textarea", "O que foi feito no dia"], ["ocorrencias", "Ocorrências e orientações à empresa", "textarea", "Problemas, acidentes, falta de material, orientações dadas"]] },
+    servicos: { nome: "serviço", novo: () => ({ etapa: "", valor: "", percentual: "0", obs: "" }),
+      campos: [["etapa", "Serviço / etapa", "text", "Ex.: Fundações"], ["valor", "Valor na planilha (R$)", "number"], ["percentual", "% executado", "number"], ["obs", "Observações", "text"]] },
+    notificacoes: { nome: "notificação", novo: () => ({ numero: "", data: hojeISO(), assunto: "", prazoResposta: "", situacao: "aguardando", resposta: "" }),
+      campos: [["numero", "Nº / ofício", "text"], ["data", "Data de envio", "date"], ["assunto", "Assunto", "textarea", "O que foi pedido ou notificado à empresa"],
+        ["prazoResposta", "Prazo para resposta", "date"], ["situacao", "Situação", SIT_NOT], ["resposta", "Resposta da empresa", "textarea"]] },
+    prazos: { nome: "documento com validade", novo: () => ({ tipo: TIPOS_PRAZO[0], descricao: "", vencimento: "" }),
+      campos: [["tipo", "Tipo", TIPOS_PRAZO], ["descricao", "Descrição / número", "text"], ["vencimento", "Vence em", "date"]] }
+  };
+  const NUMS = ["efetivo", "valor", "percentual"];
+
+  function formReg() {
+    const r = state.reg; if (!r) return "";
+    const L = REG[r.lista], it = r.item;
+    const campo = ([k, lb, t, ph]) => {
+      const id = `reg-${k}`, wide = t === "textarea" ? " wide" : "";
+      if (Array.isArray(t) || (t && typeof t === "object")) {
+        const ops = Array.isArray(t) ? t.map(v => [v, v]) : Object.entries(t);
+        return `<label class="f${wide}">${lb}<select id="${id}" data-reg="${k}">${ops.map(([v, txt]) => `<option value="${esc(v)}" ${it[k] === v ? "selected" : ""}>${esc(txt)}</option>`).join("")}</select></label>`;
+      }
+      if (t === "textarea") return `<label class="f wide">${lb}<textarea id="${id}" data-reg="${k}" rows="3" placeholder="${esc(ph || "")}">${esc(it[k])}</textarea></label>`;
+      return `<label class="f">${lb}<input id="${id}" data-reg="${k}" type="${t}" ${t === "number" ? 'step="any" inputmode="decimal"' : ""} value="${esc(it[k])}" placeholder="${esc(ph || "")}"></label>`;
+    };
+    return `<div class="panel"><h4>${it.id ? "Editar" : "Novo"} ${L.nome}</h4><div class="grid">${L.campos.map(campo).join("")}</div>
+      <div class="btns end" style="margin-top:10px"><button data-act="reg-cancel">Cancelar</button><button class="primary" data-act="reg-save" ${state.busy ? "disabled" : ""}>${state.busy === "reg" ? "Salvando…" : "Salvar"}</button></div></div>`;
+  }
+  const botaoNovo = (lista, txt) => canWrite() && !state.reg ? `<button class="primary" data-reg-new="${lista}">${txt}</button>` : "";
+  const acoesReg = (lista, x) => canWrite() ? `<div class="btns"><button class="sm" data-reg-edit="${lista}:${esc(x.id)}">Editar</button>${yesNo(`reg:${lista}:${x.id}`, "Excluir")}</div>` : "";
+  const porData = (arr, k = "data") => [...(arr || [])].sort((a, b) => String(b[k]).localeCompare(String(a[k])));
+
+  function tabDiario(o) {
+    const dias = porData(o.diario), fotosDia = d => (o.fotos || []).filter(f => f.data === d);
+    return `${formReg()}
+      <section class="blk"><header><h3>Diário de obra</h3>${botaoNovo("diario", "+ Registrar dia")}</header>
+        ${dias.length ? dias.map(x => { const fs = fotosDia(x.data); return `<article class="dia">
+          <header><b class="mono">${dt(x.data)}</b><span class="muted small">${esc(x.climaManha || "—")} de manhã · ${esc(x.climaTarde || "—")} à tarde${isNum(x.efetivo) ? ` · ${esc(x.efetivo)} trabalhador(es)` : ""}</span></header>
+          ${x.equipe ? `<p><span class="lbl">Equipe</span>${esc(x.equipe)}</p>` : ""}
+          ${x.equipamentos ? `<p><span class="lbl">Equipamentos e materiais</span>${esc(x.equipamentos)}</p>` : ""}
+          ${x.servicos ? `<p><span class="lbl">Serviços executados</span><span class="note">${esc(x.servicos)}</span></p>` : ""}
+          ${x.ocorrencias ? `<p><span class="lbl">Ocorrências</span><span class="note">${esc(x.ocorrencias)}</span></p>` : ""}
+          ${fs.length ? `<div class="dia-fotos">${fs.slice(0, 6).map(f => `<a href="${blob(f.id)}" target="_blank" rel="noopener"><img src="${blob(f.id)}" alt="${esc(f.legenda || "Foto do dia")}" loading="lazy"></a>`).join("")}${fs.length > 6 ? `<button class="ghost sm" data-tab="fotos">+${fs.length - 6} foto(s)</button>` : ""}</div>` : ""}
+          ${acoesReg("diario", x)}</article>`; }).join("")
+          : `<div class="muted">Nenhum dia registrado. Anote o tempo, a equipe, os serviços e as ocorrências de cada dia em que for à obra. As fotos com a mesma data aparecem junto e tudo entra no relatório do dia.</div>`}
+      </section>`;
+  }
+
+  /* % físico pelos serviços: média ponderada pelo valor de cada serviço (ou média simples, se faltar o valor de algum) */
+  function fisicoServicos(o) {
+    const s = (o.servicos || []).filter(x => x.etapa); if (!s.length) return null;
+    const tot = s.reduce((a, x) => a + (Number(x.valor) || 0), 0), todos = s.every(x => Number(x.valor) > 0);
+    const p = todos ? s.reduce((a, x) => a + (Number(x.valor) || 0) * (Number(x.percentual) || 0), 0) / tot : s.reduce((a, x) => a + (Number(x.percentual) || 0), 0) / s.length;
+    return { pct: Math.round(p * 10) / 10, total: tot, n: s.length, ponderado: todos };
+  }
+  function tabServicos(o) {
+    const s = o.servicos || [], f = fisicoServicos(o), vt = valorTotal(o);
+    const dif = f && isNum(o.percentual) ? f.pct - Number(o.percentual) : null;
+    return `${formReg()}
+      ${f ? `<div class="summary">
+        <div class="tile"><div class="eyebrow">Executado pelos serviços</div><div class="v num">${pctTxt(f.pct)}</div><div class="bar wide" style="margin-top:6px"><i style="width:${Math.min(100, f.pct)}%"></i></div><div class="sub">${f.ponderado ? "Média pesada pelo valor de cada serviço" : "Média simples: ponha o valor de todos os serviços para pesar pelo valor"}</div></div>
+        <div class="tile"><div class="eyebrow">% da ficha da obra</div><div class="v num">${isNum(o.percentual) ? pctTxt(Number(o.percentual)) : "—"}</div>${canWrite() && s.some(x => Number(x.percentual) > 0) && (dif === null || Math.abs(dif) >= 0.1) ? `<button class="sm" data-act="serv-aplicar" style="margin-top:6px">Usar ${pctTxt(f.pct)} na ficha</button>` : `<div class="sub">${dif !== null && Math.abs(dif) < 0.1 ? "Igual ao calculado" : "Marque o % de cada serviço"}</div>`}</div>
+        <div class="tile"><div class="eyebrow">Valor dos serviços</div><div class="v num sm">${f.total ? brl(f.total) : "—"}</div><div class="sub">${f.total && vt ? pctTxt(pct(f.total, vt)) + " do valor da obra" : `${f.n} serviço(s)`}</div></div>
+      </div>` : ""}
+      <section class="blk"><header><h3>Serviços da obra</h3><div class="btns">${canWrite() && !s.length && !state.reg ? `<button data-act="serv-padrao">Usar etapas padrão</button>` : ""}${botaoNovo("servicos", "+ Serviço")}</div></header>
+        ${s.length ? `<div class="tbl"><table><thead><tr><th>Serviço / etapa</th><th class="r">Valor</th><th class="r">Peso</th><th class="r">% executado</th><th></th></tr></thead><tbody>
+          ${s.map(x => `<tr><td>${esc(x.etapa)}${x.obs ? `<div class="small muted">${esc(x.obs)}</div>` : ""}</td><td class="mono r">${isNum(x.valor) ? brl(x.valor) : "—"}</td>
+            <td class="mono r">${f && f.total && isNum(x.valor) ? pctTxt(pct(Number(x.valor), f.total)) : "—"}</td>
+            <td class="r">${canWrite() ? `<span class="pct-cel"><input type="number" min="0" max="100" step="1" inputmode="numeric" id="serv-p-${esc(x.id)}" data-serv-pct="${esc(x.id)}" value="${esc(Number(x.percentual) || 0)}" aria-label="% executado de ${esc(x.etapa)}"><span>%</span></span>` : `<span class="mono">${esc(Number(x.percentual) || 0)}%</span>`}
+              <div class="bar" style="margin-top:4px"><i style="width:${Math.max(0, Math.min(100, Number(x.percentual) || 0))}%"></i></div></td>
+            <td>${acoesReg("servicos", x)}</td></tr>`).join("")}
+        </tbody></table></div><p class="small muted" style="margin:10px 0 0">Mude o % de cada serviço direto na tabela; ele é salvo na hora.</p>`
+          : `<div class="muted">Nenhum serviço lançado. Lance as etapas da planilha orçamentária com o valor de cada uma e vá marcando o % executado. O site calcula o % da obra.</div>`}
+      </section>`;
+  }
+
+  function tabNotificacoes(o) {
+    const nots = porData(o.notificacoes), prazos = [...(o.prazos || [])].sort((a, b) => String(a.vencimento).localeCompare(String(b.vencimento)));
+    const venc = d => { const n = diasAte(d); return n === null ? "—" : n < 0 ? `<span class="prazo-late">${dt(d)} · vencido</span>` : n <= 30 ? `<span class="prazo-soon">${dt(d)} · faltam ${n} dia(s)</span>` : dt(d); };
+    const sitNot = x => { const atras = x.situacao === "aguardando" && diasAte(x.prazoResposta) !== null && diasAte(x.prazoResposta) < 0;
+      return `<span class="pill s-${x.situacao === "atendida" ? "ok" : x.situacao === "respondida" ? "andamento" : atras || x.situacao === "sem_resposta" ? "bad" : "warn"}">${atras ? "Prazo vencido" : esc(SIT_NOT[x.situacao] || "—")}</span>`; };
+    return `${formReg()}
+      <section class="blk"><header><h3>Notificações à empresa</h3>${botaoNovo("notificacoes", "+ Notificação")}</header>
+        ${nots.length ? `<div class="tbl"><table><thead><tr><th>Nº</th><th>Data</th><th>Assunto</th><th>Responder até</th><th>Situação</th><th></th></tr></thead><tbody>
+          ${nots.map(x => `<tr><td>${esc(x.numero || "")}</td><td class="mono">${dt(x.data)}</td><td class="note">${esc(x.assunto || "")}${x.resposta ? `<div class="small muted">Resposta: ${esc(x.resposta)}</div>` : ""}</td><td class="mono">${dt(x.prazoResposta)}</td><td>${sitNot(x)}</td><td>${acoesReg("notificacoes", x)}</td></tr>`).join("")}
+        </tbody></table></div>` : `<div class="muted">Nenhuma notificação registrada. Registre os ofícios e notificações enviados à empresa com o prazo de resposta, e o site avisa quando o prazo vencer.</div>`}
+      </section>
+      <section class="blk"><header><h3>Documentos com validade</h3>${botaoNovo("prazos", "+ Documento")}</header>
+        ${prazos.length ? `<div class="tbl"><table><thead><tr><th>Tipo</th><th>Descrição</th><th>Vencimento</th><th></th></tr></thead><tbody>
+          ${prazos.map(x => `<tr><td>${esc(x.tipo || "")}</td><td>${esc(x.descricao || "")}</td><td class="mono">${venc(x.vencimento)}</td><td>${acoesReg("prazos", x)}</td></tr>`).join("")}
+        </tbody></table></div>` : `<div class="muted">Nenhum documento com validade. Lance a ART, o alvará, o seguro-garantia e a licença ambiental com a data de vencimento, e o site avisa 30 dias antes.</div>`}
+      </section>`;
+  }
+
+  /* ---------- Monitoramento: alertas de cada obra ---------- */
+  function alertas(o) {
+    const a = [], add = (nivel, txt, tab) => a.push({ nivel, txt, tab, obra: o });
+    if (o.situacao === "concluida") {
+      (o.prazos || []).forEach(x => { const n = diasAte(x.vencimento); if (n !== null && n >= 0 && n <= 30 && /garantia/i.test(x.tipo || "")) add("warn", `${x.tipo} vence em ${n} dia(s) (${dt(x.vencimento)})`, "notificacoes"); });
+      return a;
+    }
+    const p = prazoAtual(o), np = diasAte(p);
+    if (np !== null && np < 0) add("bad", `Prazo da obra vencido há ${-np} dia(s) (${dt(p)})`, "resumo");
+    else if (np !== null && np <= 30) add("warn", `Prazo da obra vence em ${np} dia(s) (${dt(p)})`, "resumo");
+    if (o.situacao === "paralisada") add("bad", "Obra paralisada", "resumo");
+    if (o.situacao !== "nao_iniciada") {
+      const ult = [...(o.vistorias || []).map(v => v.data), ...(o.diario || []).map(d => d.data), ...(o.fotos || []).map(f => f.data)].filter(Boolean).sort().pop();
+      const nd = ult ? -diasAte(ult) : null;
+      if (nd === null) add("warn", "Nenhuma visita registrada (vistoria, diário ou foto)", "diario");
+      else if (nd > 15) add(nd > 30 ? "bad" : "warn", `Última visita registrada há ${nd} dias (${dt(ult)})`, "diario");
+    }
+    const vt = valorTotal(o), md = medido(o), fis = fisicoServicos(o), pf = fis ? fis.pct : isNum(o.percentual) ? Number(o.percentual) : null;
+    if (vt && md > vt) add("bad", `Medições passam ${brl(md - vt)} do valor da obra`, "medicoes");
+    else if (vt && pf !== null && pct(md, vt) - pf > 10) add("warn", `Medido (${pctTxt(pct(md, vt))}) está acima do executado (${pctTxt(pf)})`, "medicoes");
+    const cs = cronoCalc(o).status;
+    if (cs && cs.cls === "bad") add("bad", "Atrasada em relação ao cronograma", "cronograma");
+    else if (cs && cs.cls === "warn") add("warn", "Pequeno atraso no cronograma", "cronograma");
+    const pv = (o.pendencias || []).filter(x => !x.resolvida && diasAte(x.prazo) !== null && diasAte(x.prazo) < 0).length;
+    if (pv) add("bad", `${pv} pendência(s) com prazo vencido`, "vistorias");
+    const nv = (o.notificacoes || []).filter(x => x.situacao === "aguardando" && diasAte(x.prazoResposta) !== null && diasAte(x.prazoResposta) < 0).length;
+    if (nv) add("bad", `${nv} notificação(ões) sem resposta no prazo`, "notificacoes");
+    (o.prazos || []).forEach(x => { const n = diasAte(x.vencimento); if (n === null) return;
+      if (n < 0) add("bad", `${x.tipo} vencido(a) em ${dt(x.vencimento)}`, "notificacoes"); else if (n <= 30) add("warn", `${x.tipo} vence em ${n} dia(s) (${dt(x.vencimento)})`, "notificacoes"); });
+    if (fis && isNum(o.percentual) && Math.abs(fis.pct - Number(o.percentual)) >= 5) add("info", `% da ficha (${pctTxt(Number(o.percentual))}) diferente do calculado pelos serviços (${pctTxt(fis.pct)})`, "servicos");
+    return a;
+  }
+  const ORD_ALERTA = { bad: 0, warn: 1, info: 2 };
+  function blocoAlertas(lista, comObra) {
+    if (!lista.length) return "";
+    lista = [...lista].sort((x, y) => ORD_ALERTA[x.nivel] - ORD_ALERTA[y.nivel]);
+    const max = comObra && !state.todosAlertas ? 8 : lista.length;
+    return `<section class="blk alertas"><header><h3>${comObra ? "Monitoramento" : "Alertas desta obra"}</h3><span class="muted small">${lista.filter(x => x.nivel === "bad").length} grave(s) · ${lista.filter(x => x.nivel === "warn").length} atenção</span></header>
+      <ul>${lista.slice(0, max).map(x => `<li><button class="alerta a-${x.nivel}" data-alerta="${esc(x.obra.id)}" data-alerta-tab="${esc(x.tab)}"><span class="dot"></span><span>${comObra ? `<b>${esc(x.obra.nome)}</b> · ` : ""}${esc(x.txt)}</span><span class="seta">›</span></button></li>`).join("")}</ul>
+      ${lista.length > max ? `<button class="ghost sm" data-act="alertas-todos">Ver todos os ${lista.length} alertas</button>` : ""}</section>`;
   }
 
   /* ---------- Formulário de dados ---------- */
@@ -932,13 +1077,20 @@
       const meds = (o.medicoes || []).filter(m => m.data === dia);
       const fotos = (o.fotos || []).filter(f => f.data === dia);
       const pend = (o.pendencias || []).filter(p => !p.resolvida);
+      const di = (o.diario || []).filter(d => d.data === dia);
       let s = titulo("RELATÓRIO DIÁRIO DE FISCALIZAÇÃO DE OBRA") + P(`Data: ${dt(dia)}`, { jc: "center", after: 360 });
       s += identificacao(o);
       s += secao("2. SITUAÇÃO DA OBRA") + situacaoTxt(o, ult?.situacao || o.situacao, isNum(ult?.percentual) ? ult.percentual : o.percentual);
       s += secao("3. REGISTROS DO DIA");
+      di.forEach(d => {
+        s += campo("Condições do tempo", `manhã: ${(d.climaManha || "–").toLowerCase()}; tarde: ${(d.climaTarde || "–").toLowerCase()}`);
+        s += campo("Trabalhadores na obra", isNum(d.efetivo) ? `${d.efetivo}${d.equipe ? ` (${d.equipe})` : ""}` : d.equipe);
+        s += campo("Equipamentos e materiais", d.equipamentos);
+        if (d.servicos) s += P("Serviços executados:", { b: true, before: 120, after: 40 }) + P(d.servicos);
+        if (d.ocorrencias) s += P("Ocorrências e orientações:", { b: true, before: 120, after: 40 }) + P(d.ocorrencias);
+      });
       if (vist.length) vist.forEach(v => { s += P(v.obs || `Vistoria realizada, obra ${(SIT[v.situacao] || "").toLowerCase()}.`); });
-      else if (dia === hojeISO() && o.observacoes) s += P(o.observacoes);
-      else s += P("Não há vistoria registrada nesta data.");
+      else if (!di.length) s += P(dia === hojeISO() && o.observacoes ? o.observacoes : "Não há vistoria registrada nesta data.");
       meds.forEach(m => { s += item(`Medição nº ${m.numero || "–"} lançada nesta data, no valor de ${brl(m.valor)}${m.obs ? `: ${m.obs}` : "."}`); });
       if (fotos.length) s += P(`Foram registradas ${fotos.length} fotografia(s), apresentadas no anexo.`);
       s += secao("4. PENDÊNCIAS EM ABERTO");
@@ -966,11 +1118,17 @@
         s += P(cc.status ? `${cc.status.txt}.` : "");
         s += tabela(["Mês", ">Previsto acumulado", ">Medido acumulado", ">Diferença"], cc.rows.map(r => { const passou = r.mes <= ym(hojeISO()); return [mesTxt(r.mes), brl(r.prevAc), passou ? brl(r.medAc) : "–", passou ? brl(r.medAc - r.prevAc) : "–"]; }), [1870, 2400, 2400, 2400]);
       } else s += P("Cronograma previsto não lançado.");
+      const sv = (o.servicos || []).filter(x => x.etapa), fis = fisicoServicos(o);
+      if (sv.length) s += secao(`${++n}. EXECUÇÃO FÍSICA POR SERVIÇO`) + P(`Execução física calculada pelos serviços: ${pctTxt(fis.pct)}.`) + tabela(["Serviço / etapa", ">Valor", ">% executado"], sv.map(x => [x.etapa, isNum(x.valor) ? brl(x.valor) : "–", pctTxt(Number(x.percentual) || 0)]), [5070, 2200, 1800]);
       if (adit.length) s += secao(`${++n}. ADITIVOS`) + tabela(["Nº", "Data", "Objeto", "Novo prazo", ">Valor"], adit.map(a => [a.numero || "", dt(a.data), a.descricao || "", dt(a.novoPrazo), a.valor ? brl(a.valor) : "–"]), [800, 1300, 4070, 1300, 1600]);
       s += secao(`${++n}. VISTORIAS`);
       s += vist.length ? tabela(["Data", "Situação", ">% exec.", "Observações"], vist.map(v => [dt(v.data), SIT[v.situacao] || "–", isNum(v.percentual) ? v.percentual + "%" : "–", v.obs || ""]), [1300, 1500, 1000, 5270]) : P("Nenhuma vistoria registrada.");
       s += secao(`${++n}. PENDÊNCIAS`);
       s += pend.length ? pend.map(p => item(p.texto + (p.prazo ? ` Prazo: ${dt(p.prazo)}.` : "") + (p.resolvida ? " (resolvida)" : " (em aberto)"))).join("") : P("Nenhuma pendência registrada.");
+      const nots = [...(o.notificacoes || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      if (nots.length) s += secao(`${++n}. NOTIFICAÇÕES À EMPRESA`) + tabela(["Nº", "Data", "Assunto", "Prazo", "Situação"], nots.map(x => [x.numero || "", dt(x.data), x.assunto || "", dt(x.prazoResposta), SIT_NOT[x.situacao] || "–"]), [900, 1200, 4170, 1200, 1600]);
+      const prz = (o.prazos || []).filter(x => x.vencimento);
+      if (prz.length) s += secao(`${++n}. DOCUMENTOS COM VALIDADE`) + prz.map(x => item(`${x.tipo}${x.descricao ? ` (${x.descricao})` : ""}: vence em ${dt(x.vencimento)}${diasAte(x.vencimento) < 0 ? ", vencido" : ""}.`)).join("");
       if (docs.length) s += secao(`${++n}. PROJETOS E DOCUMENTOS ARQUIVADOS`) + CATS.map(c => docs.filter(d => d.categoria === c).map(d => item(`${c}: ${d.titulo || "sem título"}${d.data ? ` (${dt(d.data)})` : ""}`)).join("")).join("");
       s += P("É o relatório.", { before: 240 }) + assinatura(dia);
       s += await anexoFotos(fotos, zip, rels, `Fotografias registradas nas vistorias da obra${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
@@ -1013,8 +1171,9 @@
     if (t.dataset.ver) return abrirPreview(t.dataset.ver, t.dataset.nome);
     if (t.dataset.aba) { state.preview.sheet = Number(t.dataset.aba); return render(); }
     if (t.dataset.filtro) { state.filtro = t.dataset.filtro; return render(); }
-    if (t.dataset.abrir) { try { history.replaceState(null, "", "#" + t.dataset.abrir); } catch (e) {} state.tab = "resumo"; state.med = null; state.doc = null; state.cron = null; state.preview = null; state.and = null; return go(t.dataset.abrir); }
-    if (t.dataset.tab) { state.preview = null; state.tab = t.dataset.tab; state.error = state.info = state.warn = ""; state.confirm = ""; return render(); }
+    if (t.dataset.abrir) { try { history.replaceState(null, "", "#" + t.dataset.abrir); } catch (e) {} state.tab = "resumo"; state.med = null; state.doc = null; state.cron = null; state.reg = null; state.preview = null; state.and = null; return go(t.dataset.abrir); }
+    if (t.dataset.alerta) { try { history.replaceState(null, "", "#" + t.dataset.alerta); } catch (e) {} state.tab = t.dataset.alertaTab || "resumo"; state.med = null; state.doc = null; state.cron = null; state.reg = null; state.preview = null; state.and = null; return go(t.dataset.alerta); }
+    if (t.dataset.tab) { state.preview = null; state.reg = null; state.tab = t.dataset.tab; state.error = state.info = state.warn = ""; state.confirm = ""; return render(); }
     if (t.dataset.add) { state.draft[t.dataset.add] = [...(state.draft[t.dataset.add] || []), { ...LISTAS[t.dataset.add].novo }]; return render(); }
     if (t.dataset.rem) { state.draft[t.dataset.rem].splice(Number(t.dataset.i), 1); return render(); }
     if (t.dataset.descrever) {
@@ -1029,6 +1188,12 @@
       } catch (e) { state.info = ""; state.error = "Não consegui abrir esta foto para descrever."; }
       state.busy = ""; return render();
     }
+    if (t.dataset.regNew) { state.reg = { lista: t.dataset.regNew, item: REG[t.dataset.regNew].novo() }; state.error = state.info = state.warn = ""; render(); window.scrollTo(0, app.querySelector(".panel")?.offsetTop - 70 || 0); return; }
+    if (t.dataset.regEdit) {
+      const [lista, id] = t.dataset.regEdit.split(/:(.*)/s), x = (o[lista] || []).find(y => y.id === id); if (!x) return;
+      state.reg = { lista, item: JSON.parse(JSON.stringify({ ...REG[lista].novo(), ...x })) }; NUMS.forEach(k => { if (state.reg.item[k] === null) state.reg.item[k] = ""; });
+      state.error = state.info = state.warn = ""; render(); window.scrollTo(0, app.querySelector(".panel")?.offsetTop - 70 || 0); return;
+    }
     if (t.dataset.ask) { state.confirm = t.dataset.ask; return render(); }
     if (t.dataset.no) { state.confirm = ""; return render(); }
     if (t.dataset.unpend) { (t.dataset.unpend === "med" ? state.medFiles : state.docFiles).splice(Number(t.dataset.i), 1); return render(); }
@@ -1040,6 +1205,7 @@
       try {
         if (tipo === "obra") { await state.db.collection("obras").doc(id).delete(); state.draft = null; state.editId = null; go("lista"); state.info = "Obra excluída."; return render(); }
         if (tipo === "med") await patch(o, { medicoes: (o.medicoes || []).filter(x => x.id !== id) });
+        if (tipo === "reg") { const [lista, rid] = id.split(/:(.*)/s); if (REG[lista]) await patch(o, { [lista]: (o[lista] || []).filter(x => x.id !== rid) }); }
         if (tipo === "doc") { const d = (o.documentos || []).find(x => x.id === id); await patch(o, { documentos: (o.documentos || []).filter(x => x.id !== id) }); for (const f of (d?.arquivos || [])) await state.assets?.delete(f.id).catch(() => {}); }
         if (tipo === "foto") { await patch(o, { fotos: (o.fotos || []).filter(x => x.id !== id) }); await state.assets?.delete(id).catch(() => {}); }
         state.info = "Excluído.";
@@ -1059,6 +1225,34 @@
       try { await patch(o, mud); state.and = null; state.info = d.vistoria ? "Situação salva e vistoria de hoje registrada." : "Situação salva."; }
       catch (e) { state.error = erroTxt(e, "salvar a situação"); }
       state.busy = ""; return render();
+    }
+    if (a === "alertas-todos") { state.todosAlertas = true; return render(); }
+    // Diário, serviços, notificações e prazos
+    if (a === "reg-cancel") { state.reg = null; state.error = ""; return render(); }
+    if (a === "reg-save") {
+      const { lista, item } = state.reg, reg = { ...item };
+      const falta = { diario: !reg.data && "Informe a data do dia.", servicos: !String(reg.etapa || "").trim() && "Informe o nome do serviço.",
+        notificacoes: !String(reg.assunto || "").trim() && "Informe o assunto da notificação.", prazos: !reg.vencimento && "Informe a data de vencimento." }[lista];
+      if (falta) { state.error = falta; return render(); }
+      NUMS.forEach(k => { if (k in reg) reg[k] = isNum(reg[k]) ? Number(reg[k]) : null; });
+      if (lista === "servicos") reg.percentual = Math.max(0, Math.min(100, reg.percentual || 0));
+      reg.id = reg.id || uid();
+      const atual = o[lista] || [], existe = atual.some(x => x.id === reg.id);
+      state.busy = "reg"; state.error = ""; render();
+      try { await patch(o, { [lista]: existe ? atual.map(x => x.id === reg.id ? reg : x) : [...atual, reg] }); state.reg = null; state.info = "Salvo."; }
+      catch (e) { state.error = erroTxt(e, "salvar"); }
+      state.busy = ""; return render();
+    }
+    if (a === "serv-padrao") {
+      try { await patch(o, { servicos: ETAPAS_PADRAO.map(etapa => ({ id: uid(), etapa, valor: null, percentual: 0, obs: "" })) }); state.info = "Etapas padrão lançadas. Edite cada uma para pôr o valor da planilha, e apague as que não existem nesta obra."; }
+      catch (e) { state.error = erroTxt(e, "lançar as etapas"); }
+      return render();
+    }
+    if (a === "serv-aplicar") {
+      const f = fisicoServicos(o); if (!f) return;
+      try { await patch(o, { percentual: f.pct }); state.and = null; state.info = `% executado da obra atualizado para ${pctTxt(f.pct)}.`; }
+      catch (e) { state.error = erroTxt(e, "atualizar o % executado"); }
+      return render();
     }
     if (a === "prev-fechar") { state.preview = null; return render(); }
     if (a === "prev-baixar") return baixarOriginal();
@@ -1136,6 +1330,8 @@
     if (el.dataset.andObs) { andDraft(curObra()).obs = el.value; return; }
     if (el.dataset.andVist) { andDraft(curObra()).vistoria = el.checked; return; }
     if (el.dataset.bind) { const [obj, k] = el.dataset.bind.split("."); if (k) { if (state[obj]) state[obj][k] = el.value; } else state[obj] = el.value; return; }
+    if (el.dataset.reg && state.reg) { state.reg.item[el.dataset.reg] = el.value; return; }
+    if (el.dataset.servPct) return;
     if (el.dataset.cron !== undefined) { state.cron.linhas[Number(el.dataset.cron)][el.dataset.k] = el.value; return; }
     if (!state.draft) return;
     const val = el.type === "checkbox" ? el.checked : el.value;
@@ -1150,6 +1346,13 @@
     if (el.dataset.andPct || el.dataset.andObs) return;
     if (el.dataset.bind) { const [obj, k] = el.dataset.bind.split("."); if (k) { if (state[obj]) state[obj][k] = el.value; } else state[obj] = el.value; return; }
     if (el.dataset.cron !== undefined) { state.cron.linhas[Number(el.dataset.cron)][el.dataset.k] = el.value; return render(); }
+    if (el.dataset.reg && state.reg) { state.reg.item[el.dataset.reg] = el.value; return; }
+    if (el.dataset.servPct) {
+      const v = Math.max(0, Math.min(100, Number(el.value) || 0));
+      const servicos = (o.servicos || []).map(x => x.id === el.dataset.servPct ? { ...x, percentual: v } : x);
+      try { await patch(o, { servicos }); } catch (e) { state.error = erroTxt(e, "salvar o %"); }
+      return render();
+    }
     if (el.dataset.impcat !== undefined) { state.impFiles[Number(el.dataset.impcat)].cat = el.value; return; }
     if (el.id === "imp-files") { [...el.files].forEach(f => state.impFiles.push({ file: f, cat: catPorNome(f.name) })); state.error = ""; return render(); }
     if (state.draft && (el.dataset.l || el.dataset.k || el.dataset.cx)) {
