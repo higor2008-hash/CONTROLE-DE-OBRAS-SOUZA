@@ -417,8 +417,9 @@
   const SIT_NOT = { aguardando: "Aguardando resposta", respondida: "Respondida", atendida: "Atendida", sem_resposta: "Sem resposta" };
   const TIPOS_PRAZO = ["ART / RRT", "Alvará de construção", "Seguro-garantia / caução", "Licença ambiental", "Vigência do contrato", "Garantia da obra", "Outro"];
   const REG = {
-    diario: { nome: "registro do diário", novo: () => ({ data: hojeISO(), climaManha: "Bom", climaTarde: "Bom", efetivo: "", equipe: "", equipamentos: "", servicos: "", ocorrencias: "" }),
-      campos: [["data", "Data", "date"], ["climaManha", "Tempo de manhã", CLIMA], ["climaTarde", "Tempo à tarde", CLIMA], ["efetivo", "Trabalhadores na obra", "number"],
+    diario: { nome: "registro do diário", novo: () => ({ data: hojeISO(), diaTipo: "", climaManha: "Bom", climaTarde: "Bom", chuva: "", temperatura: "", impraticavel: "nao", efetivo: "", equipe: "", equipamentos: "", servicos: "", ocorrencias: "" }),
+      campos: [["data", "Data", "date"], ["diaTipo", "Dia", "text", "Ex.: Segunda-feira ou Feriado"], ["climaManha", "Tempo de manhã", CLIMA], ["climaTarde", "Tempo à tarde", CLIMA],
+        ["chuva", "Chuva no dia (mm)", "number"], ["temperatura", "Temperatura", "text", "Ex.: mín. 18 °C / máx. 31 °C"], ["impraticavel", "Dia impraticável?", { nao: "Não, houve trabalho", sim: "Sim, sem condições de trabalho" }], ["efetivo", "Trabalhadores na obra", "number"],
         ["equipe", "Equipe (funções)", "text", "Ex.: 1 encarregado, 4 pedreiros, 6 serventes"], ["equipamentos", "Equipamentos e materiais recebidos", "text", "Ex.: betoneira, 2 caminhões de areia"],
         ["servicos", "Serviços executados", "textarea", "O que foi feito no dia"], ["ocorrencias", "Ocorrências e orientações à empresa", "textarea", "Problemas, acidentes, falta de material, orientações dadas"]] },
     servicos: { nome: "serviço", novo: () => ({ etapa: "", valor: "", percentual: "0", obs: "" }),
@@ -429,7 +430,7 @@
     prazos: { nome: "documento com validade", novo: () => ({ tipo: TIPOS_PRAZO[0], descricao: "", vencimento: "" }),
       campos: [["tipo", "Tipo", TIPOS_PRAZO], ["descricao", "Descrição / número", "text"], ["vencimento", "Vence em", "date"]] }
   };
-  const NUMS = ["efetivo", "valor", "percentual"];
+  const NUMS = ["efetivo", "valor", "percentual", "chuva"];
 
   function formReg() {
     const r = state.reg; if (!r) return "";
@@ -443,7 +444,7 @@
       if (t === "textarea") return `<label class="f wide">${lb}<textarea id="${id}" data-reg="${k}" rows="3" placeholder="${esc(ph || "")}">${esc(it[k])}</textarea></label>`;
       return `<label class="f">${lb}<input id="${id}" data-reg="${k}" type="${t}" ${t === "number" ? 'step="any" inputmode="decimal"' : ""} value="${esc(it[k])}" placeholder="${esc(ph || "")}"></label>`;
     };
-    return `<div class="panel"><h4>${it.id ? "Editar" : "Novo"} ${L.nome}</h4><div class="grid">${L.campos.map(campo).join("")}</div>
+    return `<div class="panel"><h4>${it.id ? "Editar" : "Novo"} ${L.nome}</h4>${r.lista === "diario" ? blocoDiaAuto() : ""}<div class="grid">${L.campos.map(campo).join("")}</div>
       <div class="btns end" style="margin-top:10px"><button data-act="reg-cancel">Cancelar</button><button class="primary" data-act="reg-save" ${state.busy ? "disabled" : ""}>${state.busy === "reg" ? "Salvando…" : "Salvar"}</button></div></div>`;
   }
   const botaoNovo = (lista, txt) => canWrite() && !state.reg ? `<button class="primary" data-reg-new="${lista}">${txt}</button>` : "";
@@ -452,10 +453,10 @@
 
   function tabDiario(o) {
     const dias = porData(o.diario), fotosDia = d => (o.fotos || []).filter(f => f.data === d);
-    return `${formReg()}
+    return `${formReg()}${resumoDiario(o)}
       <section class="blk"><header><h3>Diário de obra</h3>${botaoNovo("diario", "+ Registrar dia")}</header>
         ${dias.length ? dias.map(x => { const fs = fotosDia(x.data); return `<article class="dia">
-          <header><b class="mono">${dt(x.data)}</b><span class="muted small">${esc(x.climaManha || "—")} de manhã · ${esc(x.climaTarde || "—")} à tarde${isNum(x.efetivo) ? ` · ${esc(x.efetivo)} trabalhador(es)` : ""}</span></header>
+          <header><b class="mono">${dt(x.data)}</b>${x.diaTipo ? `<span class="small">${esc(x.diaTipo)}</span>` : ""}${x.impraticavel === "sim" ? `<span class="pill s-warn">Dia impraticável</span>` : ""}<span class="muted small">${esc(x.climaManha || "—")} de manhã · ${esc(x.climaTarde || "—")} à tarde${isNum(x.chuva) ? ` · ${esc(x.chuva)} mm` : ""}${x.temperatura ? ` · ${esc(x.temperatura)}` : ""}${isNum(x.efetivo) ? ` · ${esc(x.efetivo)} trabalhador(es)` : ""}</span></header>
           ${x.equipe ? `<p><span class="lbl">Equipe</span>${esc(x.equipe)}</p>` : ""}
           ${x.equipamentos ? `<p><span class="lbl">Equipamentos e materiais</span>${esc(x.equipamentos)}</p>` : ""}
           ${x.servicos ? `<p><span class="lbl">Serviços executados</span><span class="note">${esc(x.servicos)}</span></p>` : ""}
@@ -464,6 +465,100 @@
           ${acoesReg("diario", x)}</article>`; }).join("")
           : `<div class="muted">Nenhum dia registrado. Anote o tempo, a equipe, os serviços e as ocorrências de cada dia em que for à obra. As fotos com a mesma data aparecem junto e tudo entra no relatório do dia.</div>`}
       </section>`;
+  }
+
+  /* ---------- Diário automático: clima (Open-Meteo), feriados (BrasilAPI) e dados que já estão na ficha ---------- */
+  const EDEALINA = { lat: -17.4258, lng: -49.66 };
+  const FERIADOS_FIXOS = { "01-01": "Confraternização Universal", "04-21": "Tiradentes", "05-01": "Dia do Trabalho", "09-07": "Independência do Brasil", "10-12": "Nossa Senhora Aparecida", "11-02": "Finados", "11-15": "Proclamação da República", "11-20": "Dia da Consciência Negra", "12-25": "Natal" };
+  const SEMANA = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+  const cacheFeriados = {};
+  async function jsonDe(url) { const r = await fetch(url); if (!r.ok) throw new Error("http " + r.status); return r.json(); }
+  async function feriadoDe(dia) {
+    const ano = dia.slice(0, 4);
+    if (!cacheFeriados[ano]) cacheFeriados[ano] = jsonDe(`https://brasilapi.com.br/api/feriados/v1/${ano}`).catch(() => null);
+    const lista = await cacheFeriados[ano];
+    const f = Array.isArray(lista) && lista.find(x => x.date === dia);
+    return f ? f.name : (lista ? "" : FERIADOS_FIXOS[dia.slice(5)] || "");
+  }
+  const climaDe = (mm, cod) => mm >= 5 ? "Chuva forte (sem trabalho)" : mm > 0.2 || cod >= 51 ? "Chuva fraca" : cod >= 2 ? "Nublado" : "Bom";
+  async function tempoDe(dia, lat, lng) {
+    const q = `latitude=${lat}&longitude=${lng}&daily=weather_code,precipitation_sum,temperature_2m_max,temperature_2m_min&hourly=precipitation,weather_code&timezone=America%2FSao_Paulo&start_date=${dia}&end_date=${dia}`;
+    let j = null;
+    for (const base of ["https://api.open-meteo.com/v1/forecast", "https://archive-api.open-meteo.com/v1/archive"]) {
+      try { j = await jsonDe(`${base}?${q}`); if (j && j.daily && isNum(j.daily.precipitation_sum?.[0])) break; } catch (e) { j = null; }
+    }
+    if (!j || !j.daily) return null;
+    const h = j.hourly || {}, faixa = (ini, fim) => { let mm = 0, cod = 0; (h.time || []).forEach((t, i) => { const hr = Number(t.slice(11, 13)); if (hr >= ini && hr < fim) { mm += Number(h.precipitation[i]) || 0; cod = Math.max(cod, Number(h.weather_code[i]) || 0); } }); return climaDe(mm, cod); };
+    const d = j.daily, r1 = n => Math.round(Number(n) * 10) / 10;
+    return { manha: faixa(6, 12), tarde: faixa(12, 18), chuva: r1(d.precipitation_sum[0] || 0), tmax: r1(d.temperature_2m_max[0]), tmin: r1(d.temperature_2m_min[0]) };
+  }
+  async function diarioAutomatico() {
+    const o = curObra(), r = state.reg; if (!o || !r) return;
+    const it = r.item, dia = it.data || hojeISO(), feito = [];
+    state.busy = "dia-auto"; state.error = state.warn = ""; state.info = "Buscando o clima, os feriados e os dados da obra…"; render();
+    const lat = isNum(o.lat) ? Number(o.lat) : EDEALINA.lat, lng = isNum(o.lng) ? Number(o.lng) : EDEALINA.lng;
+    const [tempo, feriado] = await Promise.all([tempoDe(dia, lat, lng).catch(() => null), feriadoDe(dia).catch(() => "")]);
+    if (tempo) {
+      Object.assign(it, { climaManha: tempo.manha, climaTarde: tempo.tarde, chuva: String(tempo.chuva), temperatura: isNum(tempo.tmin) ? `mín. ${tempo.tmin.toLocaleString("pt-BR")} °C / máx. ${tempo.tmax.toLocaleString("pt-BR")} °C` : "" });
+      if (tempo.chuva >= 10) it.impraticavel = "sim";
+      feito.push(`clima${isNum(o.lat) ? " no local da obra" : " de Edealina"}`);
+    }
+    const sem = SEMANA[new Date(dia + "T12:00:00").getDay()];
+    it.diaTipo = feriado ? `Feriado: ${feriado}` : sem; feito.push("dia da semana e feriados");
+    const ant = porData(o.diario).find(x => x.data < dia && x.id !== it.id);
+    if (ant) { ["efetivo", "equipe", "equipamentos"].forEach(k => { if (!String(it[k] ?? "").trim() && ant[k] !== null && ant[k] !== undefined) it[k] = String(ant[k]); }); feito.push(`equipe do dia ${dt(ant.data)}`); }
+    const fotos = (o.fotos || []).filter(f => f.data === dia && f.legenda);
+    const vist = (o.vistorias || []).filter(v => v.data === dia && v.obs), meds = (o.medicoes || []).filter(m => m.data === dia);
+    if (!String(it.servicos || "").trim() && (fotos.length || vist.length)) { it.servicos = [...vist.map(v => v.obs), ...fotos.map(f => "– " + f.legenda)].join("\n"); feito.push(`${fotos.length} legenda(s) de foto`); }
+    if (!String(it.ocorrencias || "").trim()) {
+      const oc = [...meds.map(m => `Medição nº ${m.numero || "–"} lançada, no valor de ${brl(m.valor)}.`),
+        ...(o.pendencias || []).filter(p => !p.resolvida && p.prazo && p.prazo < dia).map(p => `Pendência vencida: ${p.texto} (prazo ${dt(p.prazo)}).`),
+        ...(o.notificacoes || []).filter(x => x.situacao === "aguardando" && x.prazoResposta && x.prazoResposta < dia).map(x => `Notificação ${x.numero || ""} sem resposta no prazo: ${x.assunto}.`)];
+      if (oc.length) { it.ocorrencias = oc.join("\n"); feito.push("medições, pendências e notificações"); }
+    }
+    state.busy = "";
+    state.info = `Preenchido com: ${feito.join(", ")}. Confira e corrija antes de salvar.`;
+    if (!tempo) state.warn = "Não consegui buscar o clima na internet agora. Preencha o tempo à mão.";
+    render();
+  }
+  async function diarioComClaude() {
+    const o = curObra(), r = state.reg; if (!o || !r || !state.sample) return;
+    const it = r.item, dia = it.data || hojeISO();
+    const fotos = (o.fotos || []).filter(f => f.data === dia), ant = porData(o.diario).filter(x => x.data < dia).slice(0, 3);
+    const pend = (o.pendencias || []).filter(p => !p.resolvida).map(p => p.texto + (p.prazo ? ` (prazo ${dt(p.prazo)})` : ""));
+    const ctx = { obra: o.nome, objeto: o.objeto || "", dia: `${dt(dia)} (${SEMANA[new Date(dia + "T12:00:00").getDay()]})`, situacao: SIT[o.situacao] || "", executado: o.percentual,
+      tempo: `manhã ${it.climaManha}, tarde ${it.climaTarde}${isNum(it.chuva) ? `, ${it.chuva} mm de chuva` : ""}`, equipe: `${it.efetivo || "?"} trabalhadores: ${it.equipe || ""}`,
+      anotacoesDoFiscal: { servicos: it.servicos || "", ocorrencias: it.ocorrencias || "" }, legendasDasFotosDoDia: fotos.map(f => f.legenda).filter(Boolean),
+      servicosEmAndamento: (o.servicos || []).filter(x => Number(x.percentual) > 0 && Number(x.percentual) < 100).map(x => `${x.etapa} (${x.percentual}%)`),
+      diasAnteriores: ant.map(x => ({ data: dt(x.data), servicos: x.servicos })), pendenciasAbertas: pend };
+    const imgs = [];
+    for (const f of fotos.slice(0, 4)) { try { const b = await (await fetch(blob(f.id))).blob(); if (/^image\/(jpeg|png|webp|gif)$/.test(b.type)) imgs.push(b); } catch (e) {} }
+    state.busy = "dia-claude"; state.error = state.warn = ""; state.info = "O Claude está escrevendo o diário do dia…"; render();
+    try {
+      const res = await state.sample.json(`Você é engenheiro civil fiscal de obra pública da Prefeitura de Edealina-GO. Escreva o diário de obra (RDO) deste dia, em português formal e objetivo, só com fatos que estejam nos dados ou nas fotos; não invente quantidades nem serviços.
+Dados: ${JSON.stringify(ctx)}
+Responda só com JSON: {"servicos": "serviços executados no dia, um por linha começando com – ", "ocorrencias": "ocorrências, condições de segurança, orientações à empresa e pendências relevantes, um por linha começando com – (vazio se não houver)"}`, imgs.length ? { images: imgs } : undefined);
+      if (res && typeof res.servicos === "string") it.servicos = res.servicos.trim();
+      if (res && typeof res.ocorrencias === "string" && res.ocorrencias.trim()) it.ocorrencias = res.ocorrencias.trim();
+      state.info = "Texto escrito pelo Claude. Confira e corrija antes de salvar.";
+    } catch (e) { state.info = ""; state.error = sampleErro(e); }
+    state.busy = ""; render();
+  }
+  function blocoDiaAuto() {
+    return `<div class="auto-box"><div><b>Preencher automático</b><span class="small muted">Clima do dia pela localização da obra, feriados, equipe do último dia, legendas das fotos, medições e pendências.</span></div>
+      <div class="btns"><button data-act="dia-auto" ${state.busy ? "disabled" : ""}>${state.busy === "dia-auto" ? "Buscando…" : "Preencher automático"}</button>
+      ${state.sample ? `<button data-act="dia-claude" ${state.busy ? "disabled" : ""}>${state.busy === "dia-claude" ? "Escrevendo…" : "Escrever com Claude"}</button>` : ""}</div></div>`;
+  }
+  function resumoDiario(o) {
+    const d = o.diario || []; if (!d.length) return "";
+    const imp = d.filter(x => x.impraticavel === "sim").length, chuva = d.reduce((s, x) => s + (Number(x.chuva) || 0), 0);
+    const ef = d.filter(x => isNum(x.efetivo)), media = ef.length ? ef.reduce((s, x) => s + Number(x.efetivo), 0) / ef.length : null;
+    return `<div class="summary">
+      <div class="tile"><div class="eyebrow">Dias registrados</div><div class="v num">${d.length}</div></div>
+      <div class="tile"><div class="eyebrow">Dias impraticáveis</div><div class="v num" ${imp ? 'style="color:var(--warn)"' : ""}>${imp}</div><div class="sub">contam para prazo e aditivo</div></div>
+      <div class="tile"><div class="eyebrow">Chuva registrada</div><div class="v num sm">${chuva.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mm</div></div>
+      <div class="tile"><div class="eyebrow">Efetivo médio</div><div class="v num sm">${media === null ? "—" : media.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " pessoas"}</div></div>
+    </div>`;
   }
 
   /* % físico pelos serviços: média ponderada pelo valor de cada serviço (ou média simples, se faltar o valor de algum) */
@@ -1083,7 +1178,9 @@
       s += secao("2. SITUAÇÃO DA OBRA") + situacaoTxt(o, ult?.situacao || o.situacao, isNum(ult?.percentual) ? ult.percentual : o.percentual);
       s += secao("3. REGISTROS DO DIA");
       di.forEach(d => {
-        s += campo("Condições do tempo", `manhã: ${(d.climaManha || "–").toLowerCase()}; tarde: ${(d.climaTarde || "–").toLowerCase()}`);
+        s += campo("Dia", d.diaTipo);
+        s += campo("Condições do tempo", `manhã: ${(d.climaManha || "–").toLowerCase()}; tarde: ${(d.climaTarde || "–").toLowerCase()}${isNum(d.chuva) ? `; chuva de ${d.chuva} mm` : ""}${d.temperatura ? `; ${d.temperatura}` : ""}`);
+        if (d.impraticavel === "sim") s += campo("Dia impraticável", "sim, sem condições de trabalho");
         s += campo("Trabalhadores na obra", isNum(d.efetivo) ? `${d.efetivo}${d.equipe ? ` (${d.equipe})` : ""}` : d.equipe);
         s += campo("Equipamentos e materiais", d.equipamentos);
         if (d.servicos) s += P("Serviços executados:", { b: true, before: 120, after: 40 }) + P(d.servicos);
@@ -1118,6 +1215,8 @@
         s += P(cc.status ? `${cc.status.txt}.` : "");
         s += tabela(["Mês", ">Previsto acumulado", ">Medido acumulado", ">Diferença"], cc.rows.map(r => { const passou = r.mes <= ym(hojeISO()); return [mesTxt(r.mes), brl(r.prevAc), passou ? brl(r.medAc) : "–", passou ? brl(r.medAc - r.prevAc) : "–"]; }), [1870, 2400, 2400, 2400]);
       } else s += P("Cronograma previsto não lançado.");
+      const dd = o.diario || [];
+      if (dd.length) { const imp = dd.filter(x => x.impraticavel === "sim"); s += secao(`${++n}. DIÁRIO DE OBRA`) + campo("Dias registrados", String(dd.length)) + campo("Dias impraticáveis", imp.length ? `${imp.length} (${imp.map(x => dt(x.data)).sort().join(", ")})` : "nenhum") + campo("Chuva registrada", `${dd.reduce((t, x) => t + (Number(x.chuva) || 0), 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mm`); }
       const sv = (o.servicos || []).filter(x => x.etapa), fis = fisicoServicos(o);
       if (sv.length) s += secao(`${++n}. EXECUÇÃO FÍSICA POR SERVIÇO`) + P(`Execução física calculada pelos serviços: ${pctTxt(fis.pct)}.`) + tabela(["Serviço / etapa", ">Valor", ">% executado"], sv.map(x => [x.etapa, isNum(x.valor) ? brl(x.valor) : "–", pctTxt(Number(x.percentual) || 0)]), [5070, 2200, 1800]);
       if (adit.length) s += secao(`${++n}. ADITIVOS`) + tabela(["Nº", "Data", "Objeto", "Novo prazo", ">Valor"], adit.map(a => [a.numero || "", dt(a.data), a.descricao || "", dt(a.novoPrazo), a.valor ? brl(a.valor) : "–"]), [800, 1300, 4070, 1300, 1600]);
@@ -1228,6 +1327,8 @@
     }
     if (a === "alertas-todos") { state.todosAlertas = true; return render(); }
     // Diário, serviços, notificações e prazos
+    if (a === "dia-auto") return diarioAutomatico();
+    if (a === "dia-claude") return diarioComClaude();
     if (a === "reg-cancel") { state.reg = null; state.error = ""; return render(); }
     if (a === "reg-save") {
       const { lista, item } = state.reg, reg = { ...item };

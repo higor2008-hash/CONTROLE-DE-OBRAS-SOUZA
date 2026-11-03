@@ -63,3 +63,14 @@ A chave fica guardada só no Supabase e nunca aparece no site. Só administrador
 - O login trava por alguns minutos depois de 5 senhas erradas seguidas, além dos limites do próprio Supabase (**Authentication > Rate Limits**).
 - As funções `ler-documento` e `equipe` conferem o login e o papel, têm limite de uso por pessoa e devolvem só mensagens genéricas de erro (os detalhes ficam em **Edge Functions > Logs**).
 - O site só usa consultas parametrizadas do supabase-js e funções SQL sem SQL dinâmico, então não há ponto de entrada para SQL injection.
+
+## Gestão da obra
+
+Cada obra tem, além das abas originais:
+
+- **Diário de obra**: tempo, chuva, temperatura, equipe, equipamentos, serviços e ocorrências do dia. O botão **Preencher automático** busca o clima do dia na localização da obra (Open-Meteo), marca feriados (BrasilAPI) e fins de semana, repete a equipe do último dia e puxa as legendas das fotos, as medições e as pendências. **Escrever com Claude** redige os serviços e as ocorrências a partir desses dados e das fotos do dia. Dias impraticáveis e a chuva somada ficam no topo da aba e no relatório geral.
+- **Serviços**: etapas da planilha com valor e % executado; o site calcula o % físico da obra.
+- **Notificações e prazos**: ofícios à empresa com prazo de resposta e documentos com validade (ART, alvará, seguro, licença).
+- **Monitoramento**: alertas na tela inicial e no resumo de cada obra (prazo, visitas, pendências, notificações, medição acima do executado, documentos vencendo).
+
+Nada disso altera os dados antigos: são campos novos em cada obra, que começam vazios.
