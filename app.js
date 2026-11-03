@@ -485,7 +485,7 @@
       <section class="blk"><header><h3>Serviços da obra</h3><div class="btns">${canWrite() && !s.length && !state.reg ? `<button data-act="serv-padrao">Usar etapas padrão</button>` : ""}${botaoNovo("servicos", "+ Serviço")}</div></header>
         ${s.length ? `<div class="tbl"><table><thead><tr><th>Serviço / etapa</th><th class="r">Valor</th><th class="r">Peso</th><th class="r">% executado</th><th></th></tr></thead><tbody>
           ${s.map(x => `<tr><td>${esc(x.etapa)}${x.obs ? `<div class="small muted">${esc(x.obs)}</div>` : ""}</td><td class="mono r">${isNum(x.valor) ? brl(x.valor) : "—"}</td>
-            <td class="mono r">${f && f.total && isNum(x.valor) ? pctTxt(pct(Number(x.valor), f.total)) : "—"}</td>
+            <td class="mono r">${f && f.ponderado ? pctTxt(pct(Number(x.valor), f.total)) : "—"}</td>
             <td class="r">${canWrite() ? `<span class="pct-cel"><input type="number" min="0" max="100" step="1" inputmode="numeric" id="serv-p-${esc(x.id)}" data-serv-pct="${esc(x.id)}" value="${esc(Number(x.percentual) || 0)}" aria-label="% executado de ${esc(x.etapa)}"><span>%</span></span>` : `<span class="mono">${esc(Number(x.percentual) || 0)}%</span>`}
               <div class="bar" style="margin-top:4px"><i style="width:${Math.max(0, Math.min(100, Number(x.percentual) || 0))}%"></i></div></td>
             <td>${acoesReg("servicos", x)}</td></tr>`).join("")}
