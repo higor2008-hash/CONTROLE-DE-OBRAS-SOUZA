@@ -453,7 +453,7 @@
 
   function tabDiario(o) {
     const dias = porData(o.diario), fotosDia = d => (o.fotos || []).filter(f => f.data === d);
-    return `${formReg()}${resumoDiario(o)}
+    return `${formReg()}${resumoDiario(o)}${blocoPeriodo(o)}
       <section class="blk"><header><h3>Diário de obra</h3>${botaoNovo("diario", "+ Registrar dia")}</header>
         ${dias.length ? dias.map(x => { const fs = fotosDia(x.data); return `<article class="dia">
           <header><b class="mono">${dt(x.data)}</b>${x.diaTipo ? `<span class="small">${esc(x.diaTipo)}</span>` : ""}${x.impraticavel === "sim" ? `<span class="pill s-warn">Dia impraticável</span>` : ""}<span class="muted small">${esc(x.climaManha || "—")} de manhã · ${esc(x.climaTarde || "—")} à tarde${isNum(x.chuva) ? ` · ${esc(x.chuva)} mm` : ""}${x.temperatura ? ` · ${esc(x.temperatura)}` : ""}${isNum(x.efetivo) ? ` · ${esc(x.efetivo)} trabalhador(es)` : ""}</span></header>
@@ -462,7 +462,7 @@
           ${x.servicos ? `<p><span class="lbl">Serviços executados</span><span class="note">${esc(x.servicos)}</span></p>` : ""}
           ${x.ocorrencias ? `<p><span class="lbl">Ocorrências</span><span class="note">${esc(x.ocorrencias)}</span></p>` : ""}
           ${fs.length ? `<div class="dia-fotos">${fs.slice(0, 6).map(f => `<a href="${blob(f.id)}" target="_blank" rel="noopener"><img src="${blob(f.id)}" alt="${esc(f.legenda || "Foto do dia")}" loading="lazy"></a>`).join("")}${fs.length > 6 ? `<button class="ghost sm" data-tab="fotos">+${fs.length - 6} foto(s)</button>` : ""}</div>` : ""}
-          ${acoesReg("diario", x)}</article>`; }).join("")
+          <div class="btns">${acoesReg("diario", x).replace(/^<div class="btns">|<\/div>$/g, "")}<button class="sm" data-rel="dia" data-formato="pdf" data-dia="${esc(x.data)}" ${state.busy ? "disabled" : ""}>PDF do dia</button></div></article>`; }).join("")
           : `<div class="muted">Nenhum dia registrado. Anote o tempo, a equipe, os serviços e as ocorrências de cada dia em que for à obra. As fotos com a mesma data aparecem junto e tudo entra no relatório do dia.</div>`}
       </section>`;
   }
@@ -1076,13 +1076,17 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     run: (t, o = {}) => `<w:r><w:rPr>${o.b ? "<w:b/><w:bCs/>" : ""}${o.sz ? `<w:sz w:val="${o.sz}"/><w:szCs w:val="${o.sz}"/>` : ""}</w:rPr>${String(t ?? "").split("\n").map((l, i) => (i ? "<w:br/>" : "") + `<w:t xml:space="preserve">${xe(l)}</w:t>`).join("")}</w:r>`,
     p: (runs, o = {}) => `<w:p><w:pPr>${o.keep ? "<w:keepNext/>" : ""}<w:spacing w:before="${o.before ?? 0}" w:after="${o.after ?? 120}" w:line="300" w:lineRule="auto"/><w:jc w:val="${o.jc || "both"}"/></w:pPr>${runs}</w:p>`,
   };
-  const P = (t, o) => W.p(W.run(t, o), o);
-  const titulo = t => W.p(W.run(t, { b: true }), { jc: "center", after: 60 });
-  const secao = t => W.p(W.run(t, { b: true }), { jc: "left", before: 240, keep: true });
-  const campo = (k, v) => v === undefined || v === null || v === "" ? "" : W.p(W.run(k + ":", { b: true }) + W.run(" " + v), { jc: "left", after: 40 });
-  const item = t => W.p(W.run("– " + t), { jc: "both", after: 60 });
-  const quebra = () => `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
+  /* Os mesmos textos servem para Word e PDF: no modo PDF cada bloco vira um marcador que montarPdf desenha. */
+  let modoPdf = false;
+  const B = obj => "\u0001" + JSON.stringify(obj) + "\u0002";
+  const P = (t, o) => modoPdf ? B({ k: "p", t: String(t ?? ""), o: o || {} }) : W.p(W.run(t, o), o);
+  const titulo = t => modoPdf ? B({ k: "titulo", t }) : W.p(W.run(t, { b: true }), { jc: "center", after: 60 });
+  const secao = t => modoPdf ? B({ k: "secao", t }) : W.p(W.run(t, { b: true }), { jc: "left", before: 240, keep: true });
+  const campo = (k, v) => v === undefined || v === null || v === "" ? "" : modoPdf ? B({ k: "campo", a: k, t: String(v) }) : W.p(W.run(k + ":", { b: true }) + W.run(" " + v), { jc: "left", after: 40 });
+  const item = t => modoPdf ? B({ k: "p", t: "– " + t, o: { after: 60 } }) : W.p(W.run("– " + t), { jc: "both", after: 60 });
+  const quebra = () => modoPdf ? B({ k: "quebra" }) : `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
   function tabela(cab, linhas, larg) {
+    if (modoPdf) return B({ k: "tabela", cab, linhas: linhas.map(l => l.map(c => c && c.t !== undefined ? { t: String(c.t), b: !!c.b } : { t: String(c ?? "") })), larg: larg || null });
     const tot = 9070, ws = larg || cab.map(() => Math.floor(tot / cab.length));
     const cel = (t, w, o = {}) => `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/>${o.cab ? `<w:shd w:val="clear" w:color="auto" w:fill="D9E2F3"/>` : ""}</w:tcPr>${W.p(W.run(t, { b: o.cab || o.b, sz: 18 }), { jc: o.r ? "right" : "left", after: 0 })}</w:tc>`;
     const b = `<w:top w:val="single" w:sz="4" w:color="808080"/><w:left w:val="single" w:sz="4" w:color="808080"/><w:bottom w:val="single" w:sz="4" w:color="808080"/><w:right w:val="single" w:sz="4" w:color="808080"/><w:insideH w:val="single" w:sz="4" w:color="808080"/><w:insideV w:val="single" w:sz="4" w:color="808080"/>`;
@@ -1092,6 +1096,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   }
   function assinatura(data) {
     const [y, m, d] = data.split("-");
+    if (modoPdf) return B({ k: "assinatura", t: `Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.` });
     return P(`Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`, { jc: "right", before: 360, after: 720 }) +
       P("_______________________________________________", { jc: "center", after: 0, keep: true }) +
       P(FISCAL.nome, { jc: "center", after: 0, b: true, keep: true }) + P(FISCAL.cargo, { jc: "center", after: 0, keep: true }) + P(FISCAL.funcao, { jc: "center", after: 0 });
@@ -1125,6 +1130,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   }
   async function anexoFotos(fotos, zip, rels, texto) {
     if (!fotos.length) return "";
+    if (modoPdf) return quebra() + titulo("ANEXO – REGISTRO FOTOGRÁFICO") + B({ k: "fotos", fotos: fotos.map(f => ({ id: f.id, legenda: f.legenda || "", data: f.data || "" })), texto });
     const cels = []; let n = 0;
     for (const f of fotos) {
       n++; let img = null;
@@ -1234,30 +1240,183 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       return s;
     };
   }
-  async function gerarRelatorio(tipo) {
-    const o = curObra(); if (!o) return;
-    const dia = state.relData || hojeISO();
-    state.busy = "rel-" + tipo; state.error = state.info = state.warn = ""; render();
+  /* ---------- PDF no papel timbrado (jsPDF): desenha os mesmos blocos do Word ---------- */
+  const JSPDF = ["https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"];
+  async function pdfLibJs() {
+    if (window.jspdf) return window.jspdf.jsPDF;
+    for (const u of JSPDF) { try { await loadScript(u); if (window.jspdf) return window.jspdf.jsPDF; } catch (e) {} }
+    throw new Error("jspdf");
+  }
+  const RODAPE = ["Rua 21, Quadra 04 - Centro - Edealina - GO - Tel.: (64) 3480-1133", "E-mail: gabineteprefedealina@hotmail.com", "CNPJ: 24.852.618/0001-48"];
+  const pdfTxt = t => String(t ?? "").replace(/[≥]/g, ">=").replace(/[≤]/g, "<=").replace(/[^\n\t -~ -ÿ–—‘’“”•…€]/g, "");
+  let timbrado = null;
+  async function imagemJpeg(src, alfa = 1) {
+    const bmp = await createImageBitmap(src instanceof Blob ? src : await (await fetch(src)).blob(), { imageOrientation: "from-image" });
+    const k = Math.min(1, 1400 / Math.max(bmp.width, bmp.height));
+    const cv = document.createElement("canvas"); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+    const g = cv.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, cv.width, cv.height); g.globalAlpha = alfa; g.drawImage(bmp, 0, 0, cv.width, cv.height);
+    return { url: cv.toDataURL("image/jpeg", 0.82), w: cv.width, h: cv.height };
+  }
+  async function papelTimbrado() {
+    if (timbrado) return timbrado;
     try {
-      const arq = await montarDocx(tipo === "dia" ? relatorioDiario(o, dia) : relatorioCompleto(o, dia));
-      const nome = `${tipo === "dia" ? "Relatorio_Diario" : "Relatorio_Geral"}_${slug(o.nome).replace(/-/g, "_")}_${dia}.docx`;
+      const Z = await zipLib(), res = await fetch(MODELO.url); if (!res.ok) throw new Error("modelo");
+      let bin; if (MODELO.base64) { const s = atob((await res.text()).trim()); bin = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) bin[i] = s.charCodeAt(i); } else bin = new Uint8Array(await res.arrayBuffer());
+      const zip = await Z.loadAsync(bin);
+      const png = async n => new Blob([await zip.file("word/media/" + n).async("uint8array")], { type: "image/png" });
+      timbrado = { topo: await imagemJpeg(await png("image1.png")), marca: await imagemJpeg(await png("image2.png"), 0.13) };
+    } catch (e) { timbrado = { topo: null, marca: null }; }
+    return timbrado;
+  }
+  async function montarPdf(corpo) {
+    const JsPDF = await pdfLibJs(), tb = await papelTimbrado();
+    modoPdf = true; let s;
+    try { s = await corpo(null, []); } finally { modoPdf = false; }
+    const blocos = [...s.matchAll(/\u0001(.*?)\u0002/gs)].map(m => JSON.parse(m[1]));
+    const doc = new JsPDF({ unit: "pt", format: "a4" });
+    const PW = 595.28, PH = 841.89, ML = 85, MR = 56.7, TW = PW - ML - MR, TOPO = 158, BASE = PH - 66, FS = 11.5, LH = FS * 1.3;
+    let y = TOPO;
+    const fundo = () => {
+      if (tb.marca) doc.addImage(tb.marca.url, "JPEG", ML + 20.85, 85 + 124.35, 411.9, 383.7, "marca", "FAST");
+      if (tb.topo) { const w = 399.4, h = w * tb.topo.h / tb.topo.w; doc.addImage(tb.topo.url, "JPEG", ML + (TW - w) / 2, 22.7, w, h, "topo", "FAST"); }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(60);
+      RODAPE.forEach((l, i) => doc.text(l, PW / 2, PH - 34 + i * 9, { align: "center" }));
+      doc.setTextColor(0); doc.setFont("times", "normal"); doc.setFontSize(FS);
+    };
+    const nova = () => { doc.addPage(); fundo(); y = TOPO; };
+    const cabe = h => { if (y + h > BASE) nova(); };
+    const linhas = (t, w, b = false, sz = FS) => { doc.setFont("times", b ? "bold" : "normal"); doc.setFontSize(sz); return doc.splitTextToSize(pdfTxt(t), w); };
+    const escrever = (t, { b = false, jc = "left", sz = FS, antes = 0, depois = 6 } = {}) => {
+      y += antes; const ls = linhas(t, TW, b, sz), lh = sz * 1.3;
+      ls.forEach(l => { cabe(lh); doc.setFont("times", b ? "bold" : "normal"); doc.setFontSize(sz); doc.text(l, jc === "center" ? PW / 2 : jc === "right" ? PW - MR : ML, y + sz, { align: jc === "both" ? "left" : jc }); y += lh; });
+      y += depois;
+    };
+    fundo();
+    for (const k of blocos) {
+      if (k.k === "titulo") escrever(k.t, { b: true, jc: "center", depois: 3, sz: 12.5 });
+      else if (k.k === "secao") { cabe(LH * 3); escrever(k.t, { b: true, antes: 12, depois: 4 }); }
+      else if (k.k === "p") { const o = k.o || {}; if (!k.t) { y += (o.after ?? 120) / 20; continue; } escrever(k.t, { b: !!o.b, jc: o.jc || "left", antes: (o.before || 0) / 20, depois: (o.after ?? 120) / 20 }); }
+      else if (k.k === "campo") {
+        doc.setFont("times", "bold"); doc.setFontSize(FS); const rot = pdfTxt(k.a + ": "), wr = doc.getTextWidth(rot);
+        const pars = String(k.t).split("\n"), resto = linhas(pars[0], TW - wr);
+        const mais = [...(resto.length > 1 ? linhas(resto.slice(1).join(" "), TW) : []), ...pars.slice(1).flatMap(t => linhas(t, TW))];
+        cabe(LH); doc.setFont("times", "bold"); doc.text(rot, ML, y + FS); doc.setFont("times", "normal"); doc.text(resto[0] || "", ML + wr, y + FS); y += LH;
+        mais.forEach(l => { cabe(LH); doc.text(l, ML, y + FS); y += LH; }); y += 2;
+      }
+      else if (k.k === "quebra") nova();
+      else if (k.k === "tabela") {
+        const ws = (k.larg || k.cab.map(() => 9070 / k.cab.length)).map(w => w / 20), sz = 9, lh = sz * 1.25, pad = 3.5;
+        const dir = k.cab.map(c => String(c).startsWith(">")), cab = k.cab.map(c => String(c).replace(/^>/, ""));
+        const linha = (cels, negrito, fundoCor) => {
+          const ls = cels.map((c, i) => linhas(c.t, ws[i] - 2 * pad, negrito || c.b, sz)), h = Math.max(...ls.map(l => l.length)) * lh + 2 * pad;
+          return { desenhar: () => { let x = ML; ls.forEach((l, i) => {
+            if (fundoCor) { doc.setFillColor(217, 226, 243); doc.rect(x, y, ws[i], h, "F"); }
+            doc.setDrawColor(128); doc.setLineWidth(0.4); doc.rect(x, y, ws[i], h);
+            doc.setFont("times", negrito || cels[i].b ? "bold" : "normal"); doc.setFontSize(sz);
+            l.forEach((t, j) => doc.text(t, dir[i] ? x + ws[i] - pad : x + pad, y + pad + sz + j * lh - 1, { align: dir[i] ? "right" : "left" }));
+            x += ws[i]; }); y += h; }, h };
+        };
+        const topo = linha(cab.map(t => ({ t })), true, true);
+        cabe(topo.h * 2); topo.desenhar();
+        for (const l of k.linhas) { const r = linha(l, false, false); if (y + r.h > BASE) { nova(); topo.desenhar(); } r.desenhar(); }
+        y += 10; doc.setFontSize(FS);
+      }
+      else if (k.k === "assinatura") {
+        cabe(130); escrever(k.t, { jc: "right", antes: 18, depois: 36 });
+        escrever("_______________________________________________", { jc: "center", depois: 0 });
+        escrever(FISCAL.nome, { jc: "center", b: true, depois: 0 }); escrever(FISCAL.cargo, { jc: "center", depois: 0 }); escrever(FISCAL.funcao, { jc: "center", depois: 0 });
+      }
+      else if (k.k === "fotos") {
+        escrever(k.texto, { depois: 12 });
+        const cw = TW / 2, iw = 200, ih = 250;
+        for (let i = 0; i < k.fotos.length; i += 2) {
+          const par = []; for (const f of k.fotos.slice(i, i + 2)) { let img = null; try { img = await imagemJpeg(blob(f.id)); } catch (e) {} par.push({ f, img, n: k.fotos.indexOf(f) + 1 }); }
+          const dims = par.map(p => { if (!p.img) return { w: iw, h: 40 }; let w = iw, h = w * p.img.h / p.img.w; if (h > ih) { h = ih; w = h * p.img.w / p.img.h; } return { w, h }; });
+          const leg = par.map(p => linhas(`Foto ${p.n} – ${p.f.legenda || "Sem legenda."}${p.f.data ? ` (${dt(p.f.data)})` : ""}`, cw - 16, false, 9.5));
+          const alt = Math.max(...dims.map(d => d.h)) + Math.max(...leg.map(l => l.length)) * 12 + 22;
+          cabe(alt);
+          par.forEach((p, j) => {
+            const cx = ML + j * cw + cw / 2, d = dims[j];
+            if (p.img) doc.addImage(p.img.url, "JPEG", cx - d.w / 2, y + 4, d.w, d.h, undefined, "FAST");
+            else { doc.setFont("times", "italic"); doc.setFontSize(10); doc.text("(foto indisponível)", cx, y + 24, { align: "center" }); }
+            doc.setFont("times", "normal"); doc.setFontSize(9.5); leg[j].forEach((t, m) => doc.text(t, cx, y + d.h + 18 + m * 12, { align: "center" }));
+          });
+          y += alt;
+        }
+      }
+    }
+    const n = doc.getNumberOfPages();
+    for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(110); doc.text(`Página ${i} de ${n}`, PW - MR, PH - 16, { align: "right" }); doc.setTextColor(0); }
+    return doc.output("blob");
+  }
+  function diarioPeriodo(o, ini, fim) {
+    return async (zip, rels) => {
+      const dd = (o.diario || []).filter(d => d.data >= ini && d.data <= fim).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      const fotos = (o.fotos || []).filter(f => f.data >= ini && f.data <= fim).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      const imp = dd.filter(x => x.impraticavel === "sim"), ef = dd.filter(x => isNum(x.efetivo));
+      let s = titulo("DIÁRIO DE OBRA") + P(`Período: ${dt(ini)} a ${dt(fim)}`, { jc: "center", after: 360 });
+      s += identificacao(o);
+      s += secao("2. RESUMO DO PERÍODO") + campo("Dias registrados", String(dd.length)) +
+        campo("Dias impraticáveis", imp.length ? `${imp.length} (${imp.map(x => dt(x.data)).join(", ")})` : "nenhum") +
+        campo("Chuva registrada", `${dd.reduce((t, x) => t + (Number(x.chuva) || 0), 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mm`) +
+        campo("Efetivo médio", ef.length ? `${(ef.reduce((t, x) => t + Number(x.efetivo), 0) / ef.length).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} trabalhadores` : "") +
+        campo("Situação atual", `${SIT[o.situacao] || "não informada"}${isNum(o.percentual) ? `, ${String(o.percentual).replace(".", ",")}% executado` : ""}`);
+      s += secao("3. REGISTROS DIÁRIOS");
+      if (!dd.length) s += P("Não há registros no diário de obra neste período.");
+      dd.forEach(d => {
+        s += P(`${dt(d.data)}${d.diaTipo ? ` – ${d.diaTipo}` : ""}${d.impraticavel === "sim" ? " – dia impraticável" : ""}`, { b: true, before: 200, after: 60, keep: true });
+        s += campo("Tempo", `manhã: ${(d.climaManha || "–").toLowerCase()}; tarde: ${(d.climaTarde || "–").toLowerCase()}${isNum(d.chuva) ? `; chuva de ${String(d.chuva).replace(".", ",")} mm` : ""}${d.temperatura ? `; ${d.temperatura}` : ""}`);
+        s += campo("Trabalhadores", isNum(d.efetivo) ? `${d.efetivo}${d.equipe ? ` (${d.equipe})` : ""}` : d.equipe);
+        s += campo("Equipamentos e materiais", d.equipamentos);
+        s += campo("Serviços executados", d.servicos);
+        s += campo("Ocorrências", d.ocorrencias);
+        const nf = fotos.filter(f => f.data === d.data).length; if (nf) s += campo("Fotos", `${nf} no anexo`);
+      });
+      s += assinatura(fim);
+      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas no período${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      return s;
+    };
+  }
+  async function gerarRelatorio(tipo, formato = "docx") {
+    const o = curObra(); if (!o) return;
+    const dia = state.relData || hojeISO(), pdf = formato === "pdf";
+    const ini = state.perIni || primeiroDiario(o) || dia, fim = state.perFim || hojeISO();
+    if (tipo === "periodo" && ini > fim) { state.error = "A data inicial do período é depois da data final."; return render(); }
+    state.busy = `rel-${tipo}-${formato}`; state.error = state.info = state.warn = ""; render();
+    try {
+      const corpo = tipo === "dia" ? relatorioDiario(o, dia) : tipo === "periodo" ? diarioPeriodo(o, ini, fim) : relatorioCompleto(o, dia);
+      const arq = pdf ? await montarPdf(corpo) : await montarDocx(corpo);
+      const base = { dia: "Relatorio_Diario", obra: "Relatorio_Geral", periodo: "Diario_de_Obra" }[tipo];
+      const nome = `${base}_${slug(o.nome).replace(/-/g, "_")}_${tipo === "periodo" ? `${ini}_a_${fim}` : dia}.${pdf ? "pdf" : "docx"}`;
       if (state.downloads) await state.downloads.save({ filename: nome, data: arq });
       else { const u = URL.createObjectURL(arq); const a = document.createElement("a"); a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
-      const reg = { data: dia, titulo: tipo === "dia" ? "Relatório diário de fiscalização" : "Relatório geral da obra", arquivo: nome };
+      const reg = { data: tipo === "periodo" ? fim : dia, titulo: { dia: "Relatório diário de fiscalização", obra: "Relatório geral da obra", periodo: `Diário de obra de ${dt(ini)} a ${dt(fim)}` }[tipo] + (pdf ? " (PDF)" : ""), arquivo: nome };
       if (canWrite()) await patch(curObra(), { relatorios: [...(curObra().relatorios || []).filter(r => r.arquivo !== nome), reg] }).catch(() => {});
-      state.info = `Relatório gerado: ${nome}. Ele também foi anotado em Vistorias e pendências > Relatórios emitidos.`;
+      state.info = `Arquivo gerado: ${nome}. Ele também foi anotado em Vistorias e pendências > Relatórios emitidos.`;
     } catch (e) {
       if (e && e.code === "declined") state.info = "";
-      else state.error = "Não foi possível gerar o relatório agora. Verifique a internet e tente de novo.";
+      else state.error = `Não foi possível gerar o ${pdf ? "PDF" : "relatório"} agora. Verifique a internet e tente de novo.`;
     }
     state.busy = ""; render();
   }
+  const primeiroDiario = o => (o.diario || []).map(d => d.data).filter(Boolean).sort()[0] || "";
+  const botaoRel = (tipo, formato, txt, primario) => `<button ${primario ? 'class="primary" ' : ""}data-rel="${tipo}" data-formato="${formato}" ${state.busy ? "disabled" : ""}>${state.busy === `rel-${tipo}-${formato}` ? "Gerando…" : txt}</button>`;
   function blocoRelatorios() {
-    return `<section class="blk"><header><h3>Relatórios em Word</h3></header>
-      <p class="small muted" style="margin:0 0 10px">Gera o arquivo .docx no papel timbrado da Prefeitura, com as fotos e a assinatura do fiscal, para você revisar e imprimir.</p>
-      <div class="rel-row"><label class="f">Data do relatório<input id="rel-data" type="date" data-bind="relData" value="${esc(state.relData || hojeISO())}"></label>
-        <button class="primary" data-act="rel-dia" ${state.busy ? "disabled" : ""}>${state.busy === "rel-dia" ? "Gerando…" : "Relatório do dia"}</button>
-        <button data-act="rel-obra" ${state.busy ? "disabled" : ""}>${state.busy === "rel-obra" ? "Gerando…" : "Relatório completo da obra"}</button></div>
+    return `<section class="blk"><header><h3>Relatórios em Word e PDF</h3></header>
+      <p class="small muted" style="margin:0 0 10px">Gera o arquivo no papel timbrado da Prefeitura, com as fotos e a assinatura do fiscal. Use Word para editar e PDF para enviar ou imprimir.</p>
+      <div class="rel-row"><label class="f">Data do relatório<input id="rel-data" type="date" data-bind="relData" value="${esc(state.relData || hojeISO())}"></label></div>
+      <div class="rel-grid">
+        <div><b>Relatório do dia</b><div class="btns">${botaoRel("dia", "docx", "Word", true)}${botaoRel("dia", "pdf", "PDF", true)}</div></div>
+        <div><b>Relatório completo da obra</b><div class="btns">${botaoRel("obra", "docx", "Word")}${botaoRel("obra", "pdf", "PDF")}</div></div>
+      </div>
+    </section>`;
+  }
+  function blocoPeriodo(o) {
+    if (!(o.diario || []).length) return "";
+    return `<section class="blk"><header><h3>Diário de vários dias num arquivo</h3></header>
+      <div class="rel-row"><label class="f">De<input id="per-ini" type="date" data-bind="perIni" value="${esc(state.perIni || primeiroDiario(o))}"></label>
+        <label class="f">Até<input id="per-fim" type="date" data-bind="perFim" value="${esc(state.perFim || hojeISO())}"></label>
+        ${botaoRel("periodo", "pdf", "Gerar PDF", true)}${botaoRel("periodo", "docx", "Gerar Word")}</div>
     </section>`;
   }
 
@@ -1314,7 +1473,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     if (t.dataset.andSit) { andDraft(o).situacao = t.dataset.andSit; return render(); }
     if (t.dataset.andStep) { const d = andDraft(o); d.percentual = Math.max(0, Math.min(100, (Number(d.percentual) || 0) + Number(t.dataset.andStep))); return render(); }
     const a = t.dataset.act;
-    if (a === "rel-dia" || a === "rel-obra") return gerarRelatorio(a === "rel-dia" ? "dia" : "obra");
+    if (t.dataset.rel) { if (t.dataset.dia) state.relData = t.dataset.dia; return gerarRelatorio(t.dataset.rel, t.dataset.formato); }
     if (a === "and-save") {
       const d = andDraft(o), p = Math.max(0, Math.min(100, Math.round((Number(d.percentual) || 0) * 10) / 10));
       if (!d.situacao) { state.error = "Escolha a situação da obra."; return render(); }
