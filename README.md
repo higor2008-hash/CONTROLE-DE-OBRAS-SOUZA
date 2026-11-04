@@ -73,6 +73,8 @@ Cada obra tem, além das abas originais:
 - **Notificações e prazos**: ofícios à empresa com prazo de resposta e documentos com validade (ART, alvará, seguro, licença).
 - **Monitoramento**: alertas na tela inicial e no resumo de cada obra (prazo, visitas, pendências, notificações, medição acima do executado, documentos vencendo).
 
-Cada relatório (do dia, completo e o diário de vários dias) sai em **Word** ou **PDF**, no papel timbrado, com fotos e assinatura.
+O **RDO (Relatório Diário de Obra)** sai no formato padrão: turnos de tempo, mão de obra por função, equipamentos, atividades, ocorrências, pendências, prazo decorrido/restante e assinatura do fiscal e do responsável da contratada, um por dia ou vários num arquivo.
+
+Cada relatório (RDO, do dia, completo e o diário de vários dias) sai em **Word** ou **PDF**, no papel timbrado, com fotos e assinatura.
 
 Nada disso altera os dados antigos: são campos novos em cada obra, que começam vazios.

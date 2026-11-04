@@ -417,10 +417,10 @@
   const SIT_NOT = { aguardando: "Aguardando resposta", respondida: "Respondida", atendida: "Atendida", sem_resposta: "Sem resposta" };
   const TIPOS_PRAZO = ["ART / RRT", "Alvará de construção", "Seguro-garantia / caução", "Licença ambiental", "Vigência do contrato", "Garantia da obra", "Outro"];
   const REG = {
-    diario: { nome: "registro do diário", novo: () => ({ data: hojeISO(), diaTipo: "", climaManha: "Bom", climaTarde: "Bom", chuva: "", temperatura: "", impraticavel: "nao", efetivo: "", equipe: "", equipamentos: "", servicos: "", ocorrencias: "" }),
+    diario: { nome: "registro do diário", novo: () => ({ data: hojeISO(), diaTipo: "", climaManha: "Bom", climaTarde: "Bom", chuva: "", temperatura: "", impraticavel: "nao", efetivo: "", equipe: "", responsavel: "", equipamentos: "", servicos: "", ocorrencias: "" }),
       campos: [["data", "Data", "date"], ["diaTipo", "Dia", "text", "Ex.: Segunda-feira ou Feriado"], ["climaManha", "Tempo de manhã", CLIMA], ["climaTarde", "Tempo à tarde", CLIMA],
         ["chuva", "Chuva no dia (mm)", "number"], ["temperatura", "Temperatura", "text", "Ex.: mín. 18 °C / máx. 31 °C"], ["impraticavel", "Dia impraticável?", { nao: "Não, houve trabalho", sim: "Sim, sem condições de trabalho" }], ["efetivo", "Trabalhadores na obra", "number"],
-        ["equipe", "Equipe (funções)", "text", "Ex.: 1 encarregado, 4 pedreiros, 6 serventes"], ["equipamentos", "Equipamentos e materiais recebidos", "text", "Ex.: betoneira, 2 caminhões de areia"],
+        ["equipe", "Equipe (funções)", "text", "Ex.: 1 encarregado, 4 pedreiros, 6 serventes"], ["responsavel", "Responsável da empresa no dia", "text", "Nome do engenheiro ou mestre da contratada"], ["equipamentos", "Equipamentos e materiais recebidos", "text", "Ex.: betoneira, 2 caminhões de areia"],
         ["servicos", "Serviços executados", "textarea", "O que foi feito no dia"], ["ocorrencias", "Ocorrências e orientações à empresa", "textarea", "Problemas, acidentes, falta de material, orientações dadas"]] },
     servicos: { nome: "serviço", novo: () => ({ etapa: "", valor: "", percentual: "0", obs: "" }),
       campos: [["etapa", "Serviço / etapa", "text", "Ex.: Fundações"], ["valor", "Valor na planilha (R$)", "number"], ["percentual", "% executado", "number"], ["obs", "Observações", "text"]] },
@@ -462,7 +462,7 @@
           ${x.servicos ? `<p><span class="lbl">Serviços executados</span><span class="note">${esc(x.servicos)}</span></p>` : ""}
           ${x.ocorrencias ? `<p><span class="lbl">Ocorrências</span><span class="note">${esc(x.ocorrencias)}</span></p>` : ""}
           ${fs.length ? `<div class="dia-fotos">${fs.slice(0, 6).map(f => `<a href="${blob(f.id)}" target="_blank" rel="noopener"><img src="${blob(f.id)}" alt="${esc(f.legenda || "Foto do dia")}" loading="lazy"></a>`).join("")}${fs.length > 6 ? `<button class="ghost sm" data-tab="fotos">+${fs.length - 6} foto(s)</button>` : ""}</div>` : ""}
-          <div class="btns">${acoesReg("diario", x).replace(/^<div class="btns">|<\/div>$/g, "")}<button class="sm" data-rel="dia" data-formato="pdf" data-dia="${esc(x.data)}" ${state.busy ? "disabled" : ""}>PDF do dia</button></div></article>`; }).join("")
+          <div class="btns">${acoesReg("diario", x).replace(/^<div class="btns">|<\/div>$/g, "")}<button class="sm" data-rel="rdo" data-formato="pdf" data-dia="${esc(x.data)}" ${state.busy ? "disabled" : ""}>RDO em PDF</button><button class="sm" data-rel="dia" data-formato="pdf" data-dia="${esc(x.data)}" ${state.busy ? "disabled" : ""}>PDF do dia</button></div></article>`; }).join("")
           : `<div class="muted">Nenhum dia registrado. Anote o tempo, a equipe, os serviços e as ocorrências de cada dia em que for à obra. As fotos com a mesma data aparecem junto e tudo entra no relatório do dia.</div>`}
       </section>`;
   }
@@ -506,7 +506,7 @@
     const sem = SEMANA[new Date(dia + "T12:00:00").getDay()];
     it.diaTipo = feriado ? `Feriado: ${feriado}` : sem; feito.push("dia da semana e feriados");
     const ant = porData(o.diario).find(x => x.data < dia && x.id !== it.id);
-    if (ant) { ["efetivo", "equipe", "equipamentos"].forEach(k => { if (!String(it[k] ?? "").trim() && ant[k] !== null && ant[k] !== undefined) it[k] = String(ant[k]); }); feito.push(`equipe do dia ${dt(ant.data)}`); }
+    if (ant) { ["efetivo", "equipe", "equipamentos", "responsavel"].forEach(k => { if (!String(it[k] ?? "").trim() && ant[k] !== null && ant[k] !== undefined) it[k] = String(ant[k]); }); feito.push(`equipe do dia ${dt(ant.data)}`); }
     const fotos = (o.fotos || []).filter(f => f.data === dia && f.legenda);
     const vist = (o.vistorias || []).filter(v => v.data === dia && v.obs), meds = (o.medicoes || []).filter(m => m.data === dia);
     if (!String(it.servicos || "").trim() && (fotos.length || vist.length)) { it.servicos = [...vist.map(v => v.obs), ...fotos.map(f => "– " + f.legenda)].join("\n"); feito.push(`${fotos.length} legenda(s) de foto`); }
@@ -1326,6 +1326,14 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
         escrever("_______________________________________________", { jc: "center", depois: 0 });
         escrever(FISCAL.nome, { jc: "center", b: true, depois: 0 }); escrever(FISCAL.cargo, { jc: "center", depois: 0 }); escrever(FISCAL.funcao, { jc: "center", depois: 0 });
       }
+      else if (k.k === "assinatura2") {
+        cabe(140); escrever(k.t, { jc: "right", antes: 18, depois: 40 });
+        const cw = TW / 2, y0 = y;
+        k.lados.forEach((l, j) => { const cx = ML + j * cw + cw / 2; let yy = y0;
+          doc.setLineWidth(0.6); doc.setDrawColor(0); doc.line(cx - 95, yy, cx + 95, yy); yy += 4;
+          l.forEach((t, m) => { const ls = linhas(t, cw - 20, m === 0, m === 0 ? FS : 10); ls.forEach(x => { doc.setFont("times", m === 0 ? "bold" : "normal"); doc.setFontSize(m === 0 ? FS : 10); doc.text(x, cx, yy + 11, { align: "center" }); yy += 13; }); }); y = Math.max(y, yy); });
+        y += 6; doc.setFontSize(FS);
+      }
       else if (k.k === "fotos") {
         escrever(k.texto, { depois: 12 });
         const cw = TW / 2, iw = 200, ih = 250;
@@ -1377,20 +1385,87 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       return s;
     };
   }
+  /* ---------- RDO: Relatório Diário de Obra no formato padrão ---------- */
+  function assinaturaDupla(data, empresa, resp) {
+    const [y, m, d] = data.split("-"), local = `Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`;
+    const lados = [[FISCAL.nome, FISCAL.cargo, "Fiscal da Obra – Prefeitura"], [resp || " ", empresa ? `Responsável técnico – ${empresa}` : "Responsável técnico da contratada", "Contratada"]];
+    if (modoPdf) return B({ k: "assinatura2", t: local, lados });
+    const cel = l => `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/></w:tcPr>${P("________________________________", { jc: "center", after: 0, before: 600 })}${P(l[0], { jc: "center", after: 0, b: true })}${P(l[1], { jc: "center", after: 0 })}${P(l[2], { jc: "center", after: 0 })}</w:tc>`;
+    return P(local, { jc: "right", before: 360, after: 120 }) +
+      `<w:tbl><w:tblPr><w:tblW w:w="9070" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="4535"/><w:gridCol w:w="4535"/></w:tblGrid><w:tr><w:trPr><w:cantSplit/></w:trPr>${lados.map(cel).join("")}</w:tr></w:tbl>`;
+  }
+  // "1 encarregado, 4 pedreiros e 6 serventes" → [["Encarregado", 1], ["Pedreiros", 4], ["Serventes", 6]]
+  function maoDeObra(txt) {
+    return String(txt || "").split(/[,;\n]|\s+e\s+/).map(x => x.trim()).filter(Boolean).map(x => {
+      const m = x.match(/^(\d+)\s*(?:x\s*)?(.+)$/i) || x.match(/^(.+?)\s*[:=-]?\s*(\d+)$/);
+      if (!m) return [x, null];
+      const [n, f] = /^\d+$/.test(m[1]) ? [Number(m[1]), m[2]] : [Number(m[2]), m[1]];
+      return [f.charAt(0).toUpperCase() + f.slice(1), n];
+    });
+  }
+  const praticavel = c => /sem trabalho|forte/i.test(c || "") ? "Impraticável" : c ? "Praticável" : "–";
+  const linhasTexto = t => String(t || "").split("\n").map(l => l.replace(/^[–\-•*]\s*/, "").trim()).filter(Boolean);
+  function rdo(o, dia, soCorpo = false) {
+    return async (zip, rels) => {
+      const ds = [...(o.diario || [])].filter(x => x.data).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      const d = ds.find(x => x.data === dia) || {}, num = d.data ? ds.indexOf(d) + 1 : ds.filter(x => x.data < dia).length + 1;
+      const sem = SEMANA[new Date(dia + "T12:00:00").getDay()];
+      const ini = o.dataInicio, fim = prazoAtual(o), dias = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 86400000);
+      const fotos = (o.fotos || []).filter(f => f.data === dia), vist = (o.vistorias || []).filter(v => v.data === dia && v.obs);
+      const pend = (o.pendencias || []).filter(p => !p.resolvida), servs = (o.servicos || []).filter(x => x.etapa && Number(x.percentual) > 0);
+      let s = titulo("RELATÓRIO DIÁRIO DE OBRA – RDO") + P(`RDO nº ${String(num).padStart(3, "0")} · ${dt(dia)} · ${d.diaTipo || sem}`, { jc: "center", after: 240 });
+      s += tabela(["Obra", "Contrato", "Contratada"], [[o.nome || "", o.numero || "–", [o.empresa, o.cnpj ? "CNPJ " + o.cnpj : ""].filter(Boolean).join(", ") || "–"]], [3870, 1700, 3500]);
+      s += tabela(["Início", "Término previsto", ">Prazo (dias)", ">Decorridos", ">Restantes"], [[dt(ini), dt(fim),
+        ini && fim ? String(dias(ini, fim)) : "–", ini ? String(Math.max(0, dias(ini, dia))) : "–", fim ? String(dias(dia, fim)) : "–"]], [1814, 1814, 1814, 1814, 1814]);
+      s += secao("1. CONDIÇÕES DO TEMPO");
+      s += tabela(["Turno", "Tempo", "Condição de trabalho"], [["Manhã", d.climaManha || "–", praticavel(d.climaManha)], ["Tarde", d.climaTarde || "–", praticavel(d.climaTarde)]], [2000, 4070, 3000]);
+      s += campo("Chuva no dia", isNum(d.chuva) ? `${String(d.chuva).replace(".", ",")} mm` : "") + campo("Temperatura", d.temperatura) + (d.impraticavel === "sim" ? campo("Dia impraticável", "sim, sem condições de trabalho") : "");
+      s += secao("2. MÃO DE OBRA");
+      const mo = maoDeObra(d.equipe), tot = mo.reduce((t, [, n]) => t + (n || 0), 0);
+      if (mo.length) s += tabela(["Função", ">Quantidade"], [...mo.map(([f, n]) => [f, n === null ? "–" : String(n)]), [{ t: "Total", b: true }, { t: String(tot || d.efetivo || "–"), b: true }]], [6570, 2500]);
+      else s += P(isNum(d.efetivo) ? `Efetivo total: ${d.efetivo} trabalhador(es).` : "Mão de obra não informada.");
+      s += secao("3. EQUIPAMENTOS E MATERIAIS");
+      const eq = String(d.equipamentos || "").split(/[,;\n]/).map(x => x.trim()).filter(Boolean);
+      s += eq.length ? tabela(["Equipamento / material recebido"], eq.map(x => [x]), [9070]) : P("Não informado.");
+      s += secao("4. ATIVIDADES EXECUTADAS");
+      const at = [...linhasTexto(d.servicos), ...vist.flatMap(v => linhasTexto(v.obs))];
+      s += at.length ? at.map(item).join("") : P("Nenhuma atividade registrada neste dia.");
+      if (servs.length) s += P("Andamento dos serviços:", { b: true, before: 120, after: 60 }) + tabela(["Serviço / etapa", ">% executado"], servs.map(x => [x.etapa, pctTxt(Number(x.percentual))]), [6570, 2500]);
+      s += secao("5. OCORRÊNCIAS E ORIENTAÇÕES À CONTRATADA");
+      const oc = linhasTexto(d.ocorrencias);
+      s += oc.length ? oc.map(item).join("") : P("Sem ocorrências.");
+      s += secao("6. PENDÊNCIAS EM ABERTO");
+      s += pend.length ? pend.map(p => item(p.texto + (p.prazo ? ` Prazo: ${dt(p.prazo)}.` : ""))).join("") : P("Não há pendências em aberto.");
+      s += secao("7. REGISTRO FOTOGRÁFICO") + P(fotos.length ? `${fotos.length} fotografia(s) no anexo.` : "Sem fotografias neste dia.");
+      s += assinaturaDupla(dia, o.empresa, d.responsavel);
+      if (!soCorpo) s += await anexoFotos(fotos, zip, rels, `Fotografias do dia ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      return s;
+    };
+  }
+  function rdosPeriodo(o, ini, fim) {
+    return async (zip, rels) => {
+      const dias = [...new Set((o.diario || []).map(x => x.data).filter(x => x && x >= ini && x <= fim))].sort();
+      if (!dias.length) return titulo("RELATÓRIOS DIÁRIOS DE OBRA – RDO") + P(`Não há registros no diário de obra entre ${dt(ini)} e ${dt(fim)}.`, { jc: "center" });
+      let s = "";
+      for (let i = 0; i < dias.length; i++) s += (i ? quebra() : "") + await rdo(o, dias[i], true)(zip, rels);
+      const fotos = (o.fotos || []).filter(f => dias.includes(f.data)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      return s + await anexoFotos(fotos, zip, rels, `Fotografias dos dias ${dt(ini)} a ${dt(fim)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+    };
+  }
   async function gerarRelatorio(tipo, formato = "docx") {
     const o = curObra(); if (!o) return;
     const dia = state.relData || hojeISO(), pdf = formato === "pdf";
     const ini = state.perIni || primeiroDiario(o) || dia, fim = state.perFim || hojeISO();
-    if (tipo === "periodo" && ini > fim) { state.error = "A data inicial do período é depois da data final."; return render(); }
+    if ((tipo === "periodo" || tipo === "rdos") && ini > fim) { state.error = "A data inicial do período é depois da data final."; return render(); }
     state.busy = `rel-${tipo}-${formato}`; state.error = state.info = state.warn = ""; render();
     try {
-      const corpo = tipo === "dia" ? relatorioDiario(o, dia) : tipo === "periodo" ? diarioPeriodo(o, ini, fim) : relatorioCompleto(o, dia);
+      const corpo = tipo === "dia" ? relatorioDiario(o, dia) : tipo === "rdo" ? rdo(o, dia) : tipo === "rdos" ? rdosPeriodo(o, ini, fim) : tipo === "periodo" ? diarioPeriodo(o, ini, fim) : relatorioCompleto(o, dia);
       const arq = pdf ? await montarPdf(corpo) : await montarDocx(corpo);
-      const base = { dia: "Relatorio_Diario", obra: "Relatorio_Geral", periodo: "Diario_de_Obra" }[tipo];
-      const nome = `${base}_${slug(o.nome).replace(/-/g, "_")}_${tipo === "periodo" ? `${ini}_a_${fim}` : dia}.${pdf ? "pdf" : "docx"}`;
+      const base = { dia: "Relatorio_Diario", obra: "Relatorio_Geral", periodo: "Diario_de_Obra", rdo: "RDO", rdos: "RDOs" }[tipo], per = tipo === "periodo" || tipo === "rdos";
+      const nome = `${base}_${slug(o.nome).replace(/-/g, "_")}_${per ? `${ini}_a_${fim}` : dia}.${pdf ? "pdf" : "docx"}`;
       if (state.downloads) await state.downloads.save({ filename: nome, data: arq });
       else { const u = URL.createObjectURL(arq); const a = document.createElement("a"); a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
-      const reg = { data: tipo === "periodo" ? fim : dia, titulo: { dia: "Relatório diário de fiscalização", obra: "Relatório geral da obra", periodo: `Diário de obra de ${dt(ini)} a ${dt(fim)}` }[tipo] + (pdf ? " (PDF)" : ""), arquivo: nome };
+      const reg = { data: per ? fim : dia, titulo: { dia: "Relatório diário de fiscalização", obra: "Relatório geral da obra", periodo: `Diário de obra de ${dt(ini)} a ${dt(fim)}`, rdo: `RDO de ${dt(dia)}`, rdos: `RDOs de ${dt(ini)} a ${dt(fim)}` }[tipo] + (pdf ? " (PDF)" : ""), arquivo: nome };
       if (canWrite()) await patch(curObra(), { relatorios: [...(curObra().relatorios || []).filter(r => r.arquivo !== nome), reg] }).catch(() => {});
       state.info = `Arquivo gerado: ${nome}. Ele também foi anotado em Vistorias e pendências > Relatórios emitidos.`;
     } catch (e) {
@@ -1406,17 +1481,19 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       <p class="small muted" style="margin:0 0 10px">Gera o arquivo no papel timbrado da Prefeitura, com as fotos e a assinatura do fiscal. Use Word para editar e PDF para enviar ou imprimir.</p>
       <div class="rel-row"><label class="f">Data do relatório<input id="rel-data" type="date" data-bind="relData" value="${esc(state.relData || hojeISO())}"></label></div>
       <div class="rel-grid">
-        <div><b>Relatório do dia</b><div class="btns">${botaoRel("dia", "docx", "Word", true)}${botaoRel("dia", "pdf", "PDF", true)}</div></div>
+        <div><b>RDO – Relatório Diário de Obra</b><div class="btns">${botaoRel("rdo", "docx", "Word", true)}${botaoRel("rdo", "pdf", "PDF", true)}</div></div>
+        <div><b>Relatório do dia</b><div class="btns">${botaoRel("dia", "docx", "Word")}${botaoRel("dia", "pdf", "PDF")}</div></div>
         <div><b>Relatório completo da obra</b><div class="btns">${botaoRel("obra", "docx", "Word")}${botaoRel("obra", "pdf", "PDF")}</div></div>
       </div>
     </section>`;
   }
   function blocoPeriodo(o) {
     if (!(o.diario || []).length) return "";
-    return `<section class="blk"><header><h3>Diário de vários dias num arquivo</h3></header>
+    return `<section class="blk"><header><h3>Vários dias num arquivo (diário ou RDOs)</h3></header>
       <div class="rel-row"><label class="f">De<input id="per-ini" type="date" data-bind="perIni" value="${esc(state.perIni || primeiroDiario(o))}"></label>
         <label class="f">Até<input id="per-fim" type="date" data-bind="perFim" value="${esc(state.perFim || hojeISO())}"></label>
-        ${botaoRel("periodo", "pdf", "Gerar PDF", true)}${botaoRel("periodo", "docx", "Gerar Word")}</div>
+        ${botaoRel("periodo", "pdf", "Diário em PDF", true)}${botaoRel("periodo", "docx", "Diário em Word")}${botaoRel("rdos", "pdf", "RDOs em PDF")}${botaoRel("rdos", "docx", "RDOs em Word")}</div>
+      <p class="small muted" style="margin:8px 0 0">O diário junta os dias num relatório corrido. Os RDOs saem um por página, no formato padrão, prontos para assinar.</p>
     </section>`;
   }
 
