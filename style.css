@@ -317,3 +317,13 @@ section.blk { padding: 18px; }
   section.blk { border-radius: var(--r); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- Logo da Prefeitura no cabeçalho (2026-11-25) ---------- */
+header.top .logo-pref { flex: 0 0 auto; background: #fff; border-radius: 12px; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, .15); line-height: 0; }
+header.top .logo-pref img { display: block; height: 76px; width: auto; max-width: 100%; }
+header.top .titulo { flex: 1 1 220px; min-width: 0; }
+@media (max-width: 640px) {
+  header.top .logo-pref { flex: 1 1 100%; display: flex; justify-content: center; }
+  header.top .logo-pref img { height: auto; width: 100%; max-width: 300px; }
+}
+@media print { header.top .logo-pref { box-shadow: none; } }
