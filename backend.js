@@ -7,7 +7,7 @@
   const app = document.getElementById("app");
   const BUCKET = "arquivos";
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const topo = `<header class="top"><div><div class="eyebrow">Prefeitura Municipal de Edealina · Fiscalização de Obras</div><h1>Controle de Obras</h1></div></header>`;
+  const topo = `<header class="top"><div class="logo-pref"><img src="img/logo-prefeitura.png" alt="Prefeitura de Edealina" width="900" height="272"></div><div class="titulo"><div class="eyebrow">Prefeitura Municipal de Edealina · Fiscalização de Obras</div><h1>Controle de Obras</h1></div></header>`;
 
   if (!cfg.supabaseUrl || !cfg.supabaseAnonKey || cfg.supabaseUrl.startsWith("COLE_")) {
     app.innerHTML = topo + `<div class="empty">O site ainda não foi ligado ao banco de dados. Preencha o arquivo <b>config.js</b> com a Project URL e a chave anon public do Supabase (veja o README).</div>`;

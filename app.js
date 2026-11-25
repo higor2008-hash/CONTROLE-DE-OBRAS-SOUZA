@@ -98,7 +98,8 @@
 
   function header() {
     return `<header class="top">
-      <div><div class="eyebrow">Prefeitura Municipal de Edealina · Fiscalização de Obras</div><h1>Controle de Obras</h1></div>
+      <div class="logo-pref"><img src="img/logo-prefeitura.png" alt="Prefeitura de Edealina" width="900" height="272"></div>
+      <div class="titulo"><div class="eyebrow">Prefeitura Municipal de Edealina · Fiscalização de Obras</div><h1>Controle de Obras</h1></div>
       ${state.view === "lista" && canWrite() ? `<button class="primary" data-act="nova">+ Nova obra</button>` : ""}
     </header>`;
   }
