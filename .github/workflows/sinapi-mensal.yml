@@ -1,0 +1,53 @@
+# Baixa todo mês os relatórios SINAPI publicados pela Caixa e atualiza a base de
+# preços de Goiás usada na aba Orçamento (dados/sinapi). Se a Caixa mudar o endereço
+# ou o formato do arquivo, a execução falha e o GitHub avisa por e-mail, em vez de
+# o site seguir com preço velho sem ninguém saber.
+name: Base SINAPI mensal
+
+on:
+  schedule:
+    - cron: "0 12 12,20,28 * *"   # dias 12, 20 e 28, 9h de Brasília
+  workflow_dispatch:
+    inputs:
+      mes:
+        description: "Mês da base (AAAA-MM). Em branco = mês anterior."
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install openpyxl==3.1.5
+      - name: Baixar e converter
+        env:
+          MES: ${{ github.event.inputs.mes }}
+        run: |
+          set -euo pipefail
+          MES="${MES:-$(date -u -d "$(date -u +%Y-%m-15) -1 month" +%Y-%m)}"
+          if grep -q "\"mes\": \"$MES\"" dados/sinapi/indice.json; then echo "Base $MES já existe."; exit 0; fi
+          A="${MES%-*}"; M="${MES#*-}"
+          URL="https://www.caixa.gov.br/Downloads/sinapi-relatorios-mensais/SINAPI-${A}-${M}-formato-xlsx.zip"
+          if ! curl -fsSL -A "Mozilla/5.0" -o sinapi.zip "$URL"; then
+            if [ "$(date -u +%d)" -lt 28 ]; then echo "Base $MES ainda não publicada em $URL. Tento de novo depois."; exit 0; fi
+            echo "::error::Não consegui baixar a base SINAPI $MES em $URL. Confira o site da Caixa."; exit 1
+          fi
+          mkdir -p sinapi && unzip -o -q sinapi.zip -d sinapi
+          ARQ="$(find sinapi -iname '*Refer*ncia*.xlsx' | head -1)"
+          [ -n "$ARQ" ] || { echo "::error::O zip da Caixa não tem a planilha de Referência. O formato mudou?"; exit 1; }
+          python ferramentas/sinapi_base.py "$ARQ" "$MES" --uf GO
+          echo "MES=$MES" >> "$GITHUB_ENV"
+      - name: Gravar no site
+        run: |
+          git config user.name "Base SINAPI"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dados/sinapi
+          git diff --cached --quiet && exit 0
+          git commit -m "Base SINAPI-GO ${MES:-}"
+          git push
