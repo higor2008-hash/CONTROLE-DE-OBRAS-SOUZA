@@ -35,6 +35,9 @@
   const prazoAtual = o => { const ad = (o.aditivos || []).filter(a => a.novoPrazo).map(a => a.novoPrazo).sort(); return ad.length ? ad[ad.length - 1] : (o.prazoFinal || ""); };
   const valorTotal = o => Number(o.valor || 0) + (o.aditivos || []).reduce((s, a) => s + Number(a.valor || 0), 0);
   const medido = o => (o.medicoes || []).reduce((s, m) => s + Number(m.valor || 0), 0);
+  const ordMed = (a, b) => String(a.data).localeCompare(String(b.data)) || Number(a.numero) - Number(b.numero);
+  const retida = m => m.pagamento === "retido";
+  const medRetido = o => (o.medicoes || []).filter(retida).reduce((s, m) => s + Number(m.valor || 0), 0);
   const pendAbertas = o => (o.pendencias || []).filter(p => !p.resolvida).length;
   const ultimaVist = o => [...(o.vistorias || [])].sort((a, b) => String(b.data).localeCompare(String(a.data)))[0];
   const blob = id => window.CONTROLE_SITE ? window.CONTROLE_SITE.fileUrl(id) : "/_blob/" + encodeURIComponent(id);
@@ -299,24 +302,70 @@
   }
 
   /* ---------- Medições ---------- */
+  /* Medição pelo avanço dos serviços: cada serviço entra com o % acumulado lançado na aba Serviços;
+     a medição paga só a diferença para o % que já tinha sido medido nas medições anteriores. */
+  function pctMedidoAntes(o, servId, medId) {
+    let p = 0;
+    for (const m of [...(o.medicoes || [])].sort(ordMed)) {
+      if (medId && m.id === medId) break;
+      const it = (m.itens || []).find(i => i.servicoId === servId);
+      if (it && isNum(it.pctAcumulado)) p = Math.max(p, Number(it.pctAcumulado));
+    }
+    return p;
+  }
+  const valorItem = it => Math.round((Number(it.valor) || 0) * Math.max(0, (Number(it.pctAcumulado) || 0) - (Number(it.pctAnterior) || 0))) / 100;
+  const somaItens = itens => Math.round((itens || []).reduce((s, it) => s + valorItem(it), 0) * 100) / 100;
+  function itensPelosServicos(o, medId) {
+    return (o.servicos || []).filter(x => x.etapa && Number(x.valor) > 0).map(x => {
+      const ant = pctMedidoAntes(o, x.id, medId);
+      return { servicoId: x.id, etapa: x.etapa, valor: Number(x.valor), pctAnterior: ant, pctAcumulado: Math.max(ant, Math.min(100, Number(x.percentual) || 0)) };
+    });
+  }
+  /* Se houve medição lançada à mão antes (sem detalhe por serviço), o valor sugerido é o executado acumulado menos tudo o que já foi medido, para não pagar duas vezes */
+  function valorSugerido(o, itens, medId) {
+    const antes = []; for (const m of [...(o.medicoes || [])].sort(ordMed)) { if (medId && m.id === medId) break; antes.push(m); }
+    const manuais = antes.filter(m => !(m.itens || []).length && Number(m.valor) > 0);
+    if (!manuais.length) return { valor: somaItens(itens), manual: 0 };
+    const acum = itens.reduce((s, it) => s + (Number(it.valor) || 0) * (Number(it.pctAcumulado) || 0) / 100, 0);
+    const jaMedido = antes.reduce((s, m) => s + Number(m.valor || 0), 0);
+    return { valor: Math.max(0, Math.round((acum - jaMedido) * 100) / 100), manual: manuais.reduce((s, m) => s + Number(m.valor || 0), 0) };
+  }
+  function pagamentoCel(x) {
+    if (!retida(x)) return `<span class="pill s-ok">Liberado</span>${x.liberadoEm ? `<div class="small muted mono">em ${dt(x.liberadoEm)}</div>` : ""}`;
+    const n = diasAte(x.retidoAte);
+    return `<span class="pill s-warn">Retido</span>${x.retidoAte ? `<div class="small mono ${n !== null && n < 0 ? "prazo-late" : "muted"}">até ${dt(x.retidoAte)}${n !== null && n < 0 ? " · venceu" : ""}</div>` : ""}${x.motivoRetencao ? `<div class="small muted note">${esc(x.motivoRetencao)}</div>` : ""}`;
+  }
+  function tabelaItens(itens, editavel) {
+    return `<div class="tbl"><table><thead><tr><th>Serviço / etapa</th><th class="r">Valor</th><th class="r">Já medido</th><th class="r">% acumulado</th><th class="r">Nesta medição</th><th class="r">Valor a medir</th></tr></thead><tbody>
+      ${itens.map((it, i) => `<tr><td>${esc(it.etapa)}</td><td class="mono r">${brl(it.valor)}</td><td class="mono r">${pctTxt(Number(it.pctAnterior) || 0)}</td>
+        <td class="r">${editavel ? `<span class="pct-cel"><input type="number" min="0" max="100" step="0.1" inputmode="decimal" id="med-it-${i}" data-med-item="${i}" value="${esc(it.pctAcumulado)}" aria-label="% acumulado de ${esc(it.etapa)}"><span>%</span></span>` : `<span class="mono">${pctTxt(Number(it.pctAcumulado) || 0)}</span>`}</td>
+        <td class="mono r" id="med-it-p-${i}">${pctTxt(Math.max(0, (Number(it.pctAcumulado) || 0) - (Number(it.pctAnterior) || 0)))}</td><td class="mono r" id="med-it-v-${i}">${brl(valorItem(it))}</td></tr>`).join("")}
+      </tbody><tfoot><tr><td colspan="5">Total pelos serviços</td><td class="mono r" id="med-it-tot">${brl(somaItens(itens))}</td></tr></tfoot></table></div>`;
+  }
+
   function tabMedicoes(o) {
-    const vt = valorTotal(o), meds = [...(o.medicoes || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)) || Number(a.numero) - Number(b.numero));
-    let ac = 0; const md = medido(o);
-    const m = state.med;
+    const vt = valorTotal(o), meds = [...(o.medicoes || [])].sort(ordMed);
+    let ac = 0; const md = medido(o), ret = medRetido(o);
+    const m = state.med, temServ = (o.servicos || []).some(x => x.etapa && Number(x.valor) > 0);
     const form = m ? `<div class="panel"><h4>${m.id ? "Editar medição" : "Nova medição"}</h4>
       <div class="btns">
         <span class="btn upl">Anexar PDF, planilha ou foto<input type="file" id="med-files" multiple accept="${ACEITA}"></span>
         <span class="btn upl">Tirar foto<input type="file" id="med-cam" accept="image/*" capture="environment"></span>
         ${state.sample && state.medFiles.length ? `<button data-act="med-ler" ${state.busy ? "disabled" : ""}>${state.busy === "ler" ? "Lendo o arquivo…" : "Ler valores do arquivo"}</button>` : ""}
+        ${temServ ? `<button data-act="med-puxar">${(m.itens || []).length ? "Atualizar pelo % dos serviços" : "Preencher pelo % dos serviços"}</button>` : ""}
       </div>
       ${pendingChips(state.medFiles, "med")}
       ${(m.arquivos || []).length ? `<div class="files" style="margin-top:8px">${m.arquivos.map((f, i) => `<span class="file"><span class="kind">${kindTxt(f)}</span><span>${esc(f.nome)}</span><button class="x" data-unarq="${i}" aria-label="Tirar ${esc(f.nome)}">×</button></span>`).join("")}</div>` : ""}
+      ${(m.itens || []).length ? `<h5 style="margin:14px 0 6px">Serviços medidos (pelo % lançado na aba Serviços)</h5>${tabelaItens(m.itens, true)}<p class="small muted" style="margin:6px 0 0">O % acumulado vem da aba Serviços. Se precisar, ajuste aqui só para esta medição: o valor é recalculado.</p>` : ""}
       <div class="grid" style="margin-top:12px">
         <label class="f">Nº da medição<input id="med-num" data-bind="med.numero" value="${esc(m.numero)}"></label>
         <label class="f">Data<input id="med-data" type="date" data-bind="med.data" value="${esc(m.data)}"></label>
         <label class="f">Período início<input id="med-pi" type="date" data-bind="med.periodoIni" value="${esc(m.periodoIni)}"></label>
         <label class="f">Período fim<input id="med-pf" type="date" data-bind="med.periodoFim" value="${esc(m.periodoFim)}"></label>
         <label class="f">Valor desta medição (R$)<input id="med-valor" type="number" step="0.01" data-bind="med.valor" value="${esc(m.valor)}"></label>
+        <label class="f">Pagamento<select id="med-pag" data-bind="med.pagamento"><option value="liberado" ${retida(m) ? "" : "selected"}>Liberado para pagamento</option><option value="retido" ${retida(m) ? "selected" : ""}>Retido (segurar o pagamento)</option></select></label>
+        ${retida(m) ? `<label class="f">Reter até<input id="med-ret-ate" type="date" data-bind="med.retidoAte" value="${esc(m.retidoAte || "")}"></label>
+        <label class="f wide">Motivo da retenção<input id="med-ret-mot" data-bind="med.motivoRetencao" value="${esc(m.motivoRetencao || "")}" placeholder="Ex.: aguardando correção de pendência, falta de ART, serviço a refazer"></label>` : ""}
         <label class="f wide">Observações<textarea id="med-obs" data-bind="med.obs">${esc(m.obs)}</textarea></label>
       </div>
       <div class="btns end" style="margin-top:10px"><button data-act="med-cancel">Cancelar</button><button class="primary" data-act="med-save" ${state.busy ? "disabled" : ""}>${state.busy === "med" ? "Salvando…" : "Salvar medição"}</button></div></div>` : "";
@@ -324,19 +373,22 @@
       <div class="summary">
         <div class="tile"><div class="eyebrow">Valor da obra</div><div class="v num sm">${brl(vt)}</div><div class="sub">com aditivos</div></div>
         <div class="tile"><div class="eyebrow">Total medido</div><div class="v num sm">${brl(md)}</div><div class="sub">${meds.length} medição(ões)</div></div>
+        <div class="tile"><div class="eyebrow">Liberado para pagamento</div><div class="v num sm">${brl(md - ret)}</div>${ret ? `<div class="sub" style="color:var(--warn)">${brl(ret)} retido</div>` : `<div class="sub">nada retido</div>`}</div>
         <div class="tile"><div class="eyebrow">Saldo a medir</div><div class="v num sm" ${vt - md < 0 ? 'style="color:var(--bad)"' : ""}>${brl(vt - md)}</div></div>
         <div class="tile"><div class="eyebrow">Executado financeiro</div><div class="v num">${pctTxt(pct(md, vt))}</div><div class="bar wide" style="margin-top:6px"><i class="${md > vt ? "over" : ""}" style="width:${Math.min(100, pct(md, vt))}%"></i></div></div>
       </div>
       ${md > vt && vt ? `<div class="msg err">As medições somam ${brl(md - vt)} acima do valor da obra. Confira os lançamentos.</div>` : ""}
       ${form}
       <section class="blk"><header><h3>Boletins de medição</h3>${canWrite() && !m ? `<button class="primary" data-act="med-new">+ Lançar medição</button>` : ""}</header>
-        ${meds.length ? `<div class="tbl"><table><thead><tr><th>Nº</th><th>Data</th><th>Período</th><th class="r">Valor</th><th class="r">Acumulado</th><th class="r">% obra</th><th>Arquivos</th><th></th></tr></thead><tbody>
+        ${!m && canWrite() && temServ ? `<p class="small muted" style="margin:0 0 10px">Ao lançar, a medição já vem preenchida com o avanço de cada serviço (aba Serviços) desde a última medição. Depois é só escolher se o pagamento fica liberado ou retido.</p>` : ""}
+        ${meds.length ? `<div class="tbl"><table><thead><tr><th>Nº</th><th>Data</th><th>Período</th><th class="r">Valor</th><th class="r">Acumulado</th><th class="r">% obra</th><th>Pagamento</th><th>Arquivos</th><th></th></tr></thead><tbody>
           ${meds.map(x => { ac += Number(x.valor || 0); return `<tr><td>${esc(x.numero || "")}</td><td class="mono">${dt(x.data)}</td><td class="mono small">${x.periodoIni || x.periodoFim ? `${dt(x.periodoIni)} a ${dt(x.periodoFim)}` : "—"}</td>
             <td class="mono r">${brl(x.valor)}</td><td class="mono r">${brl(ac)}</td><td class="mono r">${pctTxt(pct(ac, vt))}</td>
-            <td><div class="files">${(x.arquivos || []).map(fileChip).join("") || `<span class="muted small">Manual</span>`}</div>${x.obs ? `<div class="small muted note" style="margin-top:4px">${esc(x.obs)}</div>` : ""}</td>
-            <td>${canWrite() ? `<div class="btns"><button class="sm" data-med-edit="${esc(x.id)}">Editar</button>${yesNo("med:" + x.id, "Excluir")}</div>` : ""}</td></tr>`; }).join("")}
-          </tbody><tfoot><tr><td colspan="3">Total</td><td class="mono r">${brl(md)}</td><td></td><td class="mono r">${pctTxt(pct(md, vt))}</td><td colspan="2"></td></tr></tfoot></table></div>`
-          : `<div class="muted">Nenhuma medição lançada. Lance à mão ou anexe o boletim em PDF, planilha ou foto${state.sample ? " e peça para o site ler os valores" : ""}.</div>`}
+            <td>${pagamentoCel(x)}</td>
+            <td><div class="files">${(x.arquivos || []).map(fileChip).join("") || `<span class="muted small">${(x.itens || []).length ? "Pelos serviços" : "Manual"}</span>`}</div>${x.obs ? `<div class="small muted note" style="margin-top:4px">${esc(x.obs)}</div>` : ""}</td>
+            <td>${canWrite() ? `<div class="btns">${retida(x) ? `<button class="sm primary" data-med-pag="${esc(x.id)}">Liberar pagamento</button>` : `<button class="sm" data-med-reter="${esc(x.id)}">Reter</button>`}<button class="sm" data-med-edit="${esc(x.id)}">Editar</button>${yesNo("med:" + x.id, "Excluir")}</div>` : ""}</td></tr>${(x.itens || []).length ? `<tr class="med-det"><td colspan="9"><details class="med-itens"><summary class="small">Ver os ${x.itens.length} serviço(s) desta medição</summary>${tabelaItens(x.itens, false)}</details></td></tr>` : ""}`; }).join("")}
+          </tbody><tfoot><tr><td colspan="3">Total</td><td class="mono r">${brl(md)}</td><td></td><td class="mono r">${pctTxt(pct(md, vt))}</td><td class="small">${ret ? `${brl(ret)} retido` : ""}</td><td colspan="2"></td></tr></tfoot></table></div>`
+          : `<div class="muted">Nenhuma medição lançada. ${temServ ? "Marque o % executado de cada serviço na aba Serviços e clique em + Lançar medição: o valor sai calculado. Também dá para lançar à mão" : "Lance à mão"} ou anexe o boletim em PDF, planilha ou foto${state.sample ? " e peça para o site ler os valores" : ""}.</div>`}
       </section>`;
   }
 
@@ -628,6 +680,9 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     const vt = valorTotal(o), md = medido(o), fis = fisicoServicos(o), pf = fis ? fis.pct : isNum(o.percentual) ? Number(o.percentual) : null;
     if (vt && md > vt) add("bad", `Medições passam ${brl(md - vt)} do valor da obra`, "medicoes");
     else if (vt && pf !== null && pct(md, vt) - pf > 10) add("warn", `Medido (${pctTxt(pct(md, vt))}) está acima do executado (${pctTxt(pf)})`, "medicoes");
+    (o.medicoes || []).filter(retida).forEach(m => { const n = diasAte(m.retidoAte);
+      if (n !== null && n < 0) add("warn", `Medição nº ${m.numero || "?"} retida até ${dt(m.retidoAte)}: decidir se libera o pagamento`, "medicoes");
+      else if (n === null) add("info", `Medição nº ${m.numero || "?"} com pagamento retido (${brl(m.valor)})`, "medicoes"); });
     const cs = cronoCalc(o).status;
     if (cs && cs.cls === "bad") add("bad", "Atrasada em relação ao cronograma", "cronograma");
     else if (cs && cs.cls === "warn") add("warn", "Pequeno atraso no cronograma", "cronograma");
@@ -1207,15 +1262,15 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   function relatorioCompleto(o, dia) {
     return async (zip, rels) => {
       const vt = valorTotal(o), md = medido(o), cc = cronoCalc(o);
-      const meds = [...(o.medicoes || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)) || Number(a.numero) - Number(b.numero));
+      const meds = [...(o.medicoes || [])].sort(ordMed);
       const vist = [...(o.vistorias || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)));
       const pend = o.pendencias || [], adit = o.aditivos || [], docs = o.documentos || [];
       const fotos = [...(o.fotos || [])].sort((a, b) => String(a.data).localeCompare(String(b.data)));
       let n = 1, s = titulo("RELATÓRIO GERAL DE ACOMPANHAMENTO DA OBRA") + P(`Posição em ${dt(dia)}`, { jc: "center", after: 360 });
       s += identificacao(o);
       s += secao(`${++n}. SITUAÇÃO ATUAL`) + situacaoTxt(o, o.situacao, o.percentual) + (o.observacoes ? P(o.observacoes, { before: 120 }) : "");
-      s += secao(`${++n}. EXECUÇÃO FINANCEIRA`) + campo("Valor da obra", brl(vt)) + campo("Total medido", `${brl(md)} (${pctTxt(pct(md, vt))})`) + campo("Saldo a medir", brl(vt - md));
-      if (meds.length) { let ac = 0; s += P("", { after: 60 }) + tabela(["Nº", "Data", "Período", ">Valor", ">Acumulado", ">% obra"], meds.map(m => { ac += Number(m.valor || 0); return [m.numero || "", dt(m.data), m.periodoIni || m.periodoFim ? `${dt(m.periodoIni)} a ${dt(m.periodoFim)}` : "–", brl(m.valor), brl(ac), pctTxt(pct(ac, vt))]; }), [700, 1300, 2270, 1700, 1700, 1400]); }
+      s += secao(`${++n}. EXECUÇÃO FINANCEIRA`) + campo("Valor da obra", brl(vt)) + campo("Total medido", `${brl(md)} (${pctTxt(pct(md, vt))})`) + (medRetido(o) ? campo("Liberado para pagamento", brl(md - medRetido(o))) + campo("Pagamento retido", brl(medRetido(o))) : "") + campo("Saldo a medir", brl(vt - md));
+      if (meds.length) { let ac = 0; s += P("", { after: 60 }) + tabela(["Nº", "Data", "Período", ">Valor", ">Acumulado", ">% obra", "Pagamento"], meds.map(m => { ac += Number(m.valor || 0); return [m.numero || "", dt(m.data), m.periodoIni || m.periodoFim ? `${dt(m.periodoIni)} a ${dt(m.periodoFim)}` : "–", brl(m.valor), brl(ac), pctTxt(pct(ac, vt)), retida(m) ? `Retido${m.retidoAte ? " até " + dt(m.retidoAte) : ""}` : "Liberado"]; }), [600, 1150, 2020, 1450, 1450, 1000, 1400]); }
       else s += P("Nenhuma medição lançada até esta data.", { before: 120 });
       s += secao(`${++n}. CRONOGRAMA FÍSICO-FINANCEIRO`);
       if (cc.rows.length && cc.temPrev) {
@@ -1535,6 +1590,13 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     if (t.dataset.unpend) { (t.dataset.unpend === "med" ? state.medFiles : state.docFiles).splice(Number(t.dataset.i), 1); return render(); }
     if (t.dataset.unarq) { state.med.arquivos.splice(Number(t.dataset.unarq), 1); return render(); }
     if (t.dataset.cronRem) { state.cron.linhas.splice(Number(t.dataset.cronRem), 1); return render(); }
+    if (t.dataset.medReter) { const m = (o.medicoes || []).find(x => x.id === t.dataset.medReter); state.med = JSON.parse(JSON.stringify(m)); state.med.arquivos = state.med.arquivos || []; state.med.pagamento = "retido"; state.medFiles = []; state.error = state.warn = ""; state.info = "Escolha até quando reter o pagamento e o motivo, e clique em Salvar medição."; render(); window.scrollTo(0, 0); return; }
+    if (t.dataset.medPag) {
+      const id = t.dataset.medPag;
+      try { await patch(o, { medicoes: (o.medicoes || []).map(x => x.id === id ? { ...x, pagamento: "liberado", liberadoEm: hojeISO(), retidoAte: "", motivoRetencao: x.motivoRetencao ? `Retido antes: ${x.motivoRetencao}` : "" } : x) }); state.info = "Pagamento da medição liberado."; }
+      catch (e) { state.error = erroTxt(e, "liberar o pagamento"); }
+      return render();
+    }
     if (t.dataset.medEdit) { const m = (o.medicoes || []).find(x => x.id === t.dataset.medEdit); state.med = JSON.parse(JSON.stringify(m)); state.med.arquivos = state.med.arquivos || []; state.medFiles = []; state.error = state.info = state.warn = ""; render(); window.scrollTo(0, 0); return; }
     if (t.dataset.yes) {
       const [tipo, id] = t.dataset.yes.split(/:(.*)/s); state.confirm = "";
@@ -1614,7 +1676,21 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       state.busy = ""; return render();
     }
     // Medições
-    if (a === "med-new") { const prox = Math.max(0, ...(o.medicoes || []).map(m => parseInt(m.numero) || 0)) + 1; state.med = { numero: String(prox), data: hojeISO(), periodoIni: "", periodoFim: "", valor: "", obs: "", arquivos: [] }; state.medFiles = []; state.error = state.info = state.warn = ""; return render(); }
+    if (a === "med-new") {
+      const prox = Math.max(0, ...(o.medicoes || []).map(m => parseInt(m.numero) || 0)) + 1, ult = [...(o.medicoes || [])].sort(ordMed).pop();
+      const itens = itensPelosServicos(o, null), sug = valorSugerido(o, itens, null), tot = sug.valor;
+      state.med = { numero: String(prox), data: hojeISO(), periodoIni: ult?.periodoFim || o.dataInicio || "", periodoFim: hojeISO(), valor: itens.length ? tot.toFixed(2) : "", obs: "", arquivos: [], itens, pagamento: "liberado", retidoAte: "", motivoRetencao: "" };
+      if (!itens.length) state.med.periodoIni = state.med.periodoFim = "";
+      state.medFiles = []; state.error = state.warn = "";
+      state.info = !itens.length ? "" : tot > 0 ? `Medição preenchida pelo avanço dos serviços: ${brl(tot)}. Confira e escolha se o pagamento fica liberado ou retido.` : "";
+      if (itens.length && !(tot > 0)) state.warn = "Nenhum serviço avançou desde a última medição. Atualize o % executado na aba Serviços ou lance o valor à mão.";
+      else if (itens.length && sug.manual) state.warn = `Há medição(ões) anteriores lançadas à mão (${brl(sug.manual)}), sem o % de cada serviço. Por isso o valor sugerido é o executado acumulado pelos serviços menos tudo o que já foi medido. Confira.`;
+      return render();
+    }
+    if (a === "med-puxar") {
+      const m = state.med; m.itens = itensPelosServicos(o, m.id); m.valor = valorSugerido(o, m.itens, m.id).valor.toFixed(2);
+      state.error = state.warn = ""; state.info = `Valor atualizado pelo % dos serviços: ${brl(Number(m.valor))}.`; return render();
+    }
     if (a === "med-cancel") { state.med = null; state.medFiles = []; state.error = state.info = state.warn = ""; return render(); }
     if (a === "med-ler") return lerMedicao();
     if (a === "med-save") {
@@ -1625,11 +1701,16 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       try {
         const novos = []; for (const f of state.medFiles) novos.push(await subir(f));
         const arquivos = [...(m.arquivos || []), ...novos];
+        const pag = retida(m) ? "retido" : "liberado", antes = m.id ? (curObra().medicoes || []).find(x => x.id === m.id) : null;
         const reg = { id: m.id || uid(), numero: m.numero || "", data: m.data || "", periodoIni: m.periodoIni || "", periodoFim: m.periodoFim || "", valor: Number(m.valor), obs: m.obs || "", arquivos,
-          origem: arquivos.some(f => f.tipo === "application/pdf") ? "pdf" : arquivos.length ? "foto" : "manual" };
+          origem: arquivos.some(f => f.tipo === "application/pdf") ? "pdf" : arquivos.length ? "foto" : (m.itens || []).length ? "servicos" : "manual",
+          itens: (m.itens || []).map(it => ({ servicoId: it.servicoId, etapa: it.etapa, valor: Number(it.valor) || 0, pctAnterior: Number(it.pctAnterior) || 0, pctAcumulado: Math.max(Number(it.pctAnterior) || 0, Math.min(100, Number(it.pctAcumulado) || 0)) })),
+          pagamento: pag, retidoAte: pag === "retido" ? (m.retidoAte || "") : "", motivoRetencao: m.motivoRetencao || "",
+          liberadoEm: pag === "liberado" ? (antes && !retida(antes) ? antes.liberadoEm || "" : hojeISO()) : "" };
+        if (!reg.itens.length) delete reg.itens;
         const atual = curObra().medicoes || [];
         await patch(curObra(), { medicoes: m.id ? atual.map(x => x.id === m.id ? reg : x) : [...atual, reg] });
-        state.med = null; state.medFiles = []; state.warn = ""; state.info = "Medição salva.";
+        state.med = null; state.medFiles = []; state.warn = ""; state.info = reg.pagamento === "retido" ? "Medição salva com o pagamento retido." : "Medição salva e liberada para pagamento.";
       } catch (e) { state.error = erroTxt(e, "salvar a medição"); }
       state.busy = ""; return render();
     }
@@ -1670,6 +1751,13 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     if (el.dataset.bind) { const [obj, k] = el.dataset.bind.split("."); if (k) { if (state[obj]) state[obj][k] = el.value; } else state[obj] = el.value; return; }
     if (el.dataset.reg && state.reg) { state.reg.item[el.dataset.reg] = el.value; return; }
     if (el.dataset.servPct) return;
+    if (el.dataset.medItem !== undefined && state.med) {
+      const it = state.med.itens[Number(el.dataset.medItem)]; it.pctAcumulado = el.value;
+      const i = el.dataset.medItem, set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      set("med-it-p-" + i, pctTxt(Math.max(0, (Number(it.pctAcumulado) || 0) - (Number(it.pctAnterior) || 0)))); set("med-it-v-" + i, brl(valorItem(it)));
+      set("med-it-tot", brl(somaItens(state.med.itens))); state.med.valor = valorSugerido(curObra(), state.med.itens, state.med.id).valor.toFixed(2);
+      const v = document.getElementById("med-valor"); if (v) v.value = state.med.valor; return;
+    }
     if (el.dataset.cron !== undefined) { state.cron.linhas[Number(el.dataset.cron)][el.dataset.k] = el.value; return; }
     if (!state.draft) return;
     const val = el.type === "checkbox" ? el.checked : el.value;
@@ -1682,7 +1770,8 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     const el = ev.target; const o = curObra();
     if (el.dataset.andVist) { andDraft(o).vistoria = el.checked; return; }
     if (el.dataset.andPct || el.dataset.andObs) return;
-    if (el.dataset.bind) { const [obj, k] = el.dataset.bind.split("."); if (k) { if (state[obj]) state[obj][k] = el.value; } else state[obj] = el.value; return; }
+    if (el.dataset.bind) { const [obj, k] = el.dataset.bind.split("."); if (k) { if (state[obj]) state[obj][k] = el.value; } else state[obj] = el.value; if (el.id === "med-pag") render(); return; }
+    if (el.dataset.medItem !== undefined) return;
     if (el.dataset.cron !== undefined) { state.cron.linhas[Number(el.dataset.cron)][el.dataset.k] = el.value; return render(); }
     if (el.dataset.reg && state.reg) { state.reg.item[el.dataset.reg] = el.value; return; }
     if (el.dataset.servPct) {

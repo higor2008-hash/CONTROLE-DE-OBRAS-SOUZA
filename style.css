@@ -327,3 +327,8 @@ header.top .titulo { flex: 1 1 220px; min-width: 0; }
   header.top .logo-pref img { height: auto; width: 100%; max-width: 300px; }
 }
 @media print { header.top .logo-pref { box-shadow: none; } }
+/* Medição pelos serviços */
+.med-itens { margin-top: 6px; }
+.med-itens summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.med-itens .tbl { margin-top: 6px; }
+tr.med-det > td { padding-top: 0; border-top: 0; }
