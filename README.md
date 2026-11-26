@@ -67,6 +67,15 @@ A chave fica guardada só no Supabase e nunca aparece no site. Só administrador
 - As funções `ler-documento` e `equipe` conferem o login e o papel, têm limite de uso por pessoa e devolvem só mensagens genéricas de erro (os detalhes ficam em **Edge Functions > Logs**).
 - O site só usa consultas parametrizadas do supabase-js e funções SQL sem SQL dinâmico, então não há ponto de entrada para SQL injection.
 
+## Duas áreas: Prefeitura e Pessoal
+
+Ao entrar, o site pergunta onde você quer ir:
+
+- **Prefeitura de Edealina**: a fiscalização das obras do Município, com o logo e o papel timbrado da Prefeitura.
+- **Pessoal**: as suas obras particulares, com a marca *Higor Rodrigues de Souza · Engenheiro Civil* no topo do site e em todos os PDFs e arquivos Word (sem timbre da Prefeitura).
+
+Cada obra pertence a uma área (campo **Área** em Editar dados). As obras pessoais só aparecem para quem as criou: nem os outros membros da equipe da Prefeitura, nem os administradores, conseguem vê-las ou alterá-las, porque a regra fica no próprio banco. Para ativar essa regra, rode de novo o arquivo [`supabase/schema.sql`](supabase/schema.sql) no SQL Editor do Supabase (não apaga nada).
+
 ## Gestão da obra
 
 Cada obra tem, além das abas originais:

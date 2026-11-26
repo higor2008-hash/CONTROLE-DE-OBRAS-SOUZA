@@ -7,6 +7,12 @@
   const TABS = [["resumo", "Resumo"], ["orcamento", "Orçamento"], ["diario", "Diário de obra"], ["servicos", "Serviços"], ["documentos", "Projetos e documentos"], ["medicoes", "Medições"], ["cronograma", "Cronograma"], ["fotos", "Fotos"], ["vistorias", "Vistorias e pendências"], ["notificacoes", "Notificações e prazos"]];
   const TIPOS_OBRA = ["Edificação nova", "Reforma e ampliação", "Pavimentação e recapeamento", "Drenagem e bueiros", "Praça, parque e paisagismo",
     "Rede de água e esgoto", "Rede elétrica e iluminação pública", "Ponte e obra de arte especial", "Quadra e equipamento esportivo", "Habitação / casa", "Outra"];
+  /* Duas áreas no mesmo site: a fiscalização da Prefeitura e as obras pessoais do engenheiro */
+  const AREAS = {
+    prefeitura: { nome: "Prefeitura de Edealina", eyebrow: "Prefeitura Municipal de Edealina · Fiscalização de Obras", titulo: "Controle de Obras", resumo: "Fiscalização das obras do Município" },
+    pessoal: { nome: "Higor Rodrigues de Souza", eyebrow: "Obras particulares · Orçamentos e projetos", titulo: "Minhas Obras", resumo: "Obras, orçamentos e projetos particulares" }
+  };
+  const areaDe = o => o && o.area === "pessoal" ? "pessoal" : "prefeitura";
   const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
   const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   const SHEETJS = ["https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"];
@@ -17,7 +23,7 @@
   const app = document.getElementById("app");
   const state = { db: null, assets: null, sample: null, imgLimits: null, obras: [], loaded: false, view: "lista", tab: "resumo",
     filtro: "todas", busca: "", draft: null, editId: null, error: "", info: "", warn: "", readOnly: false, confirm: "",
-    med: null, medFiles: [], reg: null, todosAlertas: false, doc: null, docFiles: [], cron: null, fotoData: "", busy: "", preview: null, downloads: null, impFiles: [], and: null };
+    med: null, medFiles: [], reg: null, todosAlertas: false, doc: null, docFiles: [], cron: null, fotoData: "", busy: "", preview: null, downloads: null, impFiles: [], and: null, area: null, userId: null };
 
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const isNum = v => v !== null && v !== undefined && v !== "" && !isNaN(Number(v));
@@ -98,18 +104,35 @@
   const canWrite = () => !state.readOnly && !!state.db;
   const canUpload = () => canWrite() && !!state.assets;
 
+  const areaAtual = () => state.view === "editar" ? areaDe(state.draft) : state.view !== "lista" && state.view !== "inicio" && curObra() ? areaDe(curObra()) : state.area || "prefeitura";
   function header() {
-    return `<header class="top">
-      <div class="logo-pref"><img src="img/logo-prefeitura.png" alt="Prefeitura de Edealina" width="900" height="272"></div>
-      <div class="titulo"><div class="eyebrow">Prefeitura Municipal de Edealina · Fiscalização de Obras</div><h1>Controle de Obras</h1></div>
-      ${state.view === "lista" && canWrite() ? `<button class="primary" data-act="nova">+ Nova obra</button>` : ""}
+    if (state.view === "inicio") return `<header class="top"><div class="titulo"><div class="eyebrow">Higor Rodrigues de Souza · Engenheiro Civil</div><h1>Controle de Obras</h1></div></header>`;
+    const ar = areaAtual(), A = AREAS[ar];
+    return `<header class="top area-${ar}">
+      ${ar === "pessoal" ? `<div class="logo-pessoal"><img src="img/marca-higor.svg" alt="" width="64" height="64"><div><b>Higor Rodrigues de Souza</b><span>Engenheiro Civil</span></div></div>`
+        : `<div class="logo-pref"><img src="img/logo-prefeitura.png" alt="Prefeitura de Edealina" width="900" height="272"></div>`}
+      <div class="titulo"><div class="eyebrow">${esc(A.eyebrow)}</div><h1>${esc(A.titulo)}</h1></div>
+      <div class="head-btns">${state.view === "lista" ? `<button class="ghost-claro" data-act="inicio">Trocar de área</button>` : ""}${state.view === "lista" && canWrite() ? `<button class="primary" data-act="nova">+ Nova obra</button>` : ""}</div>
     </header>`;
+  }
+  /* Tela inicial: escolher entre a parte da Prefeitura e a parte pessoal */
+  function renderInicio() {
+    const cont = ar => state.obras.filter(o => areaDe(o) === ar), card = (ar, logo) => { const os = cont(ar), at = os.filter(o => o.situacao !== "concluida"), al = os.flatMap(alertas).filter(x => x.nivel === "bad").length; return `
+      <button class="area-card area-${ar}" data-area="${ar}">
+        <span class="area-logo">${logo}</span>
+        <span class="area-txt"><span class="eyebrow">${ar === "pessoal" ? "Pessoal" : "Prefeitura"}</span><b>${esc(AREAS[ar].nome)}</b><span class="muted">${esc(AREAS[ar].resumo)}</span>
+          <span class="area-num">${state.loaded ? `${os.length} obra${os.length === 1 ? "" : "s"}${at.length ? ` · ${at.length} em aberto` : ""}${al ? ` · <span style="color:var(--bad)">${al} alerta${al > 1 ? "s" : ""}</span>` : ""}` : "Carregando…"}</span></span>
+        <span class="seta">›</span>
+      </button>`; };
+    app.innerHTML = header() + msgs() + `<p class="muted" style="margin:0 0 14px">Escolha onde você quer entrar.</p>
+      <div class="areas">${card("prefeitura", `<img src="img/logo-prefeitura.png" alt="Prefeitura de Edealina" width="900" height="272">`)}${card("pessoal", `<img src="img/marca-higor.svg" alt="" width="72" height="72"><span class="area-nome"><b>Higor Rodrigues de Souza</b>Engenheiro Civil</span>`)}</div>`;
   }
   const msgs = () => (state.error ? `<div class="msg err">${esc(state.error)}</div>` : "") + (state.warn ? `<div class="msg warn">${esc(state.warn)}</div>` : "") + (state.info ? `<div class="msg info">${esc(state.info)}</div>` : "");
 
   function render() {
     const y = window.scrollY;
     if (state.view === "editar") { renderForm(); return; }
+    if (state.view === "inicio" || (state.view === "lista" && !state.area)) { state.view = "inicio"; renderInicio(); return; }
     if (state.view !== "lista") { const o = curObra(); if (o) { renderFicha(o); rotularTabelas(); mostrarAba(); if (state.tab === "orcamento") orcResultados(); window.scrollTo(0, y); return; } state.view = "lista"; }
     renderLista();
   }
@@ -129,7 +152,7 @@
 
   /* ---------- Lista ---------- */
   function renderLista() {
-    const obras = state.obras;
+    const obras = state.obras.filter(o => areaDe(o) === state.area);
     const cont = k => obras.filter(o => o.situacao === k).length;
     const ativos = obras.filter(o => o.situacao !== "concluida");
     let lista = obras.filter(o => state.filtro === "todas" || o.situacao === state.filtro);
@@ -540,7 +563,7 @@
     for (const f of fotos.slice(0, 4)) { try { const b = await (await fetch(blob(f.id))).blob(); if (/^image\/(jpeg|png|webp|gif)$/.test(b.type)) imgs.push(b); } catch (e) {} }
     state.busy = "dia-claude"; state.error = state.warn = ""; state.info = "O Claude está escrevendo o diário do dia…"; render();
     try {
-      const res = await state.sample.json(`Você é engenheiro civil fiscal de obra pública da Prefeitura de Edealina-GO. Escreva o diário de obra (RDO) deste dia, em português formal e objetivo, só com fatos que estejam nos dados ou nas fotos; não invente quantidades nem serviços.
+      const res = await state.sample.json(`${areaDe(o) === "pessoal" ? "Você é o engenheiro civil responsável técnico desta obra." : "Você é engenheiro civil fiscal de obra pública da Prefeitura de Edealina-GO."} Escreva o diário de obra (RDO) deste dia, em português formal e objetivo, só com fatos que estejam nos dados ou nas fotos; não invente quantidades nem serviços.
 Dados: ${JSON.stringify(ctx)}
 Responda só com JSON: {"servicos": "serviços executados no dia, um por linha começando com – ", "ocorrencias": "ocorrências, condições de segurança, orientações à empresa e pendências relevantes, um por linha começando com – (vazio se não houver)"}`, imgs.length ? { images: imgs } : undefined);
       if (res && typeof res.servicos === "string") it.servicos = res.servicos.trim();
@@ -687,12 +710,14 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       ${importHtml()}
       <form id="form" novalidate>
         <section class="blk"><header><h3>Dados da obra</h3></header><div class="grid">
+          <label class="f">Área<select id="f-area" data-k="area"><option value="prefeitura" ${areaDe(d) === "prefeitura" ? "selected" : ""}>Prefeitura de Edealina</option><option value="pessoal" ${areaDe(d) === "pessoal" ? "selected" : ""}>Pessoal (minhas obras)</option></select></label>
           ${f("nome", "Nome da obra *", "text", true)}
           ${f("objeto", "Objeto", "text", true)}
           <label class="f">Tipo de obra<select id="f-tipoObra" data-k="tipoObra"><option value="">—</option>${TIPOS_OBRA.map(t => `<option ${d.tipoObra === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>
           ${f("numero", "Contrato / instrumento")}
           ${f("modalidade", "Modalidade")}
-          ${f("empresa", "Empresa contratada")}
+          ${areaDe(d) === "pessoal" ? f("cliente", "Cliente / proprietário") : ""}
+          ${f("empresa", areaDe(d) === "pessoal" ? "Empresa executora (se houver)" : "Empresa contratada")}
           ${f("cnpj", "CNPJ")}
           ${f("fonte", "Fonte de recurso")}
           ${f("valor", "Valor inicial (R$)", "number")}
@@ -704,6 +729,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
         </div></section>
         <section class="blk"><header><h3>Localização</h3></header><div class="grid">
           ${f("endereco", "Endereço", "text", true)}
+          ${f("municipio", "Município - UF", "text", false, "Ex.: Edealina - GO")}
           ${f("coordenadas", "Coordenadas", "text", true, "Ex.: S 17°25'33\" W 49°39'36\" ou -17.4258, -49.6600")}
         </div><p class="small muted" style="margin:8px 0 0">Copie as coordenadas do Google Maps ou da foto georreferenciada.</p></section>
         <section class="blk"><header><h3>Orçamento e referências Caixa</h3></header><div class="grid">
@@ -745,6 +771,9 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     ["valorPO", "bdi"].forEach(k => { d.caixa[k] = isNum(d.caixa[k]) ? Number(d.caixa[k]) : null; });
     (d.aditivos || []).forEach(a => { a.valor = isNum(a.valor) ? Number(a.valor) : null; });
     (d.vistorias || []).forEach(v => { v.percentual = isNum(v.percentual) ? Number(v.percentual) : null; });
+    d.area = areaDe(d);
+    if (d.area === "pessoal" && !d.dono && state.userId) d.dono = state.userId;
+    state.area = d.area;
     d.atualizadoEm = new Date().toISOString();
     let id = state.editId;
     if (!id) { id = slug(d.nome); if (state.obras.some(o => o.id === id)) id += "-" + Date.now().toString(36); }
@@ -752,6 +781,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     try {
       if (btn) btn.textContent = state.impFiles.length ? "Salvando e enviando arquivos…" : "Salvando…";
       await state.db.collection("obras").doc(id).set(limpo(d));
+      if (!state.obras.some(x => x.id === id)) state.obras = [...state.obras, { id, ...limpo(d) }];
       let anexos = 0, falhaAnexo = "";
       try { anexos = await anexarImportados(id); } catch (e) { falhaAnexo = erroTxt(e, "anexar os documentos"); }
       state.impFiles = []; state.draft = null; state.editId = null; state.tab = "resumo"; go(id);
@@ -1071,6 +1101,11 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   const FISCAL = { nome: "Higor Rodrigues de Souza", cargo: "Engenheiro Civil – CREA-GO 1017177278D-2", funcao: "Fiscal da Obra" };
   const JSZIP = ["https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"];
   const MODELO = window.CONTROLE_SITE ? { url: "modelos/papel-timbrado.docx" } : { url: "/_blob/0c0b5d47dcd5cdc1b254395f91d58c60", base64: true };
+  let docObra = null;
+  const docPessoal = () => areaDe(docObra) === "pessoal";
+  const LOCAL_DOC = () => docPessoal() ? (String(docObra.municipio || "").replace(/\s+-\s+/, " – ") || "Goiás") : "Edealina – GO";
+  const FUNCAO_DOC = () => docPessoal() ? "Responsável técnico" : FISCAL.funcao;
+  const RODAPE_PESSOAL = () => [`${FISCAL.nome} · ${FISCAL.cargo}`];
   const MESES_EXT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
   async function zipLib() {
     if (window.JSZip) return window.JSZip;
@@ -1102,10 +1137,10 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   }
   function assinatura(data) {
     const [y, m, d] = data.split("-");
-    if (modoPdf) return B({ k: "assinatura", t: `Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.` });
-    return P(`Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`, { jc: "right", before: 360, after: 720 }) +
+    if (modoPdf) return B({ k: "assinatura", t: `${LOCAL_DOC()}, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`, funcao: FUNCAO_DOC() });
+    return P(`${LOCAL_DOC()}, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`, { jc: "right", before: 360, after: 720 }) +
       P("_______________________________________________", { jc: "center", after: 0, keep: true }) +
-      P(FISCAL.nome, { jc: "center", after: 0, b: true, keep: true }) + P(FISCAL.cargo, { jc: "center", after: 0, keep: true }) + P(FISCAL.funcao, { jc: "center", after: 0 });
+      P(FISCAL.nome, { jc: "center", after: 0, b: true, keep: true }) + P(FISCAL.cargo, { jc: "center", after: 0, keep: true }) + P(FUNCAO_DOC(), { jc: "center", after: 0 });
   }
   function identificacao(o) {
     const cx = o.caixa || {};
@@ -1116,7 +1151,8 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       campo("Valor com aditivos", (o.aditivos || []).some(a => a.valor) ? brl(valorTotal(o)) : "") +
       campo("Início", o.dataInicio ? dt(o.dataInicio) : "") + campo("Prazo original", o.prazoFinal ? dt(o.prazoFinal) : "") +
       campo("Prazo vigente", prazoAtual(o) && prazoAtual(o) !== o.prazoFinal ? dt(prazoAtual(o)) : "") +
-      campo("Fiscal da obra", `${FISCAL.nome}, ${FISCAL.cargo}`);
+      campo(docPessoal() ? "Cliente / proprietário" : "", docPessoal() ? o.cliente : "") +
+      campo(docPessoal() ? "Responsável técnico" : "Fiscal da obra", `${FISCAL.nome}, ${FISCAL.cargo}`);
   }
   function situacaoTxt(o, sit, perc) {
     const vt = valorTotal(o), md = medido(o), cc = cronoCalc(o);
@@ -1157,6 +1193,24 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     return quebra() + titulo("ANEXO – REGISTRO FOTOGRÁFICO") + P(texto, { after: 240 }) +
       `<w:tbl><w:tblPr><w:tblW w:w="9070" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="4535"/><w:gridCol w:w="4535"/></w:tblGrid>${linhas}</w:tbl>`;
   }
+  /* Parte pessoal: troca o cabeçalho e o rodapé da Prefeitura pela marca do engenheiro */
+  async function timbrePessoalDocx(zip) {
+    const mh = await marcaPessoal();
+    if (mh) zip.file("word/media/marca-higor.png", mh.bytes);
+    const NS = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"', T = 520000;
+    const img = mh ? `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${T}" cy="${T}"/><wp:docPr id="9101" name="Marca"/><a:graphic ${NS}><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="9101" name="marca-higor.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdMarcaH"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${T}" cy="${T}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>` : "";
+    const txt = (t, o = {}) => `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>${o.b ? "<w:b/>" : ""}<w:color w:val="${o.cor || "16324F"}"/><w:sz w:val="${o.sz || 18}"/></w:rPr><w:t xml:space="preserve">${xe(t)}</w:t></w:r>`;
+    const par = (runs, o = {}) => `<w:p><w:pPr><w:spacing w:before="0" w:after="0"/>${o.jc ? `<w:jc w:val="${o.jc}"/>` : ""}</w:pPr>${runs}</w:p>`;
+    const cab = `<w:tbl><w:tblPr><w:tblW w:w="9070" w:type="dxa"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="single" w:sz="12" w:color="E0A526"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="1000"/><w:gridCol w:w="8070"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${par(img)}</w:tc><w:tc><w:tcPr><w:tcW w:w="8070" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${par(txt(FISCAL.nome.toUpperCase(), { b: true, sz: 28 }))}${par(txt(FISCAL.cargo, { sz: 19 }))}</w:tc></w:tr></w:tbl>${par("")}`;
+    const rod = par(txt(RODAPE_PESSOAL().join("   "), { sz: 15, cor: "5A5A5A" }), { jc: "center" });
+    for (const nome of Object.keys(zip.files)) {
+      const m = nome.match(/^word\/(header|footer)\d+\.xml$/); if (!m) continue;
+      let x = await zip.file(nome).async("string");
+      x = m[1] === "header" ? x.replace(/(<w:hdr\b[^>]*>)[\s\S]*(<\/w:hdr>)/, `$1${cab}$2`) : x.replace(/(<w:ftr\b[^>]*>)[\s\S]*(<\/w:ftr>)/, `$1${rod}$2`);
+      zip.file(nome, x);
+      if (m[1] === "header") zip.file(nome.replace("word/", "word/_rels/") + ".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdMarcaH" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/marca-higor.png"/></Relationships>`);
+    }
+  }
   async function montarDocx(corpo) {
     const Z = await zipLib();
     const res = await fetch(MODELO.url); if (!res.ok) throw new Error("modelo");
@@ -1164,6 +1218,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     if (MODELO.base64) { const s = atob((await res.text()).trim()); bin = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) bin[i] = s.charCodeAt(i); }
     else bin = new Uint8Array(await res.arrayBuffer());
     const zip = await Z.loadAsync(bin), rels = [];
+    if (docPessoal()) await timbrePessoalDocx(zip);
     const body = await corpo(zip, rels);
     let doc = await zip.file("word/document.xml").async("string");
     const ini = doc.indexOf("<w:body>") + 8, fim = doc.lastIndexOf("<w:sectPr");
@@ -1205,7 +1260,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       s += secao("4. PENDÊNCIAS EM ABERTO");
       s += pend.length ? pend.map(p => item(p.texto + (p.prazo ? ` Prazo: ${dt(p.prazo)}.` : ""))).join("") : P("Não há pendências em aberto.");
       s += assinatura(dia);
-      s += await anexoFotos(fotos, zip, rels, `Fotografias obtidas em ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      s += await anexoFotos(fotos, zip, rels, `Fotografias obtidas em ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
       return s;
     };
   }
@@ -1242,7 +1297,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       if (prz.length) s += secao(`${++n}. DOCUMENTOS COM VALIDADE`) + prz.map(x => item(`${x.tipo}${x.descricao ? ` (${x.descricao})` : ""}: vence em ${dt(x.vencimento)}${diasAte(x.vencimento) < 0 ? ", vencido" : ""}.`)).join("");
       if (docs.length) s += secao(`${++n}. PROJETOS E DOCUMENTOS ARQUIVADOS`) + CATS.map(c => docs.filter(d => d.categoria === c).map(d => item(`${c}: ${d.titulo || "sem título"}${d.data ? ` (${dt(d.data)})` : ""}`)).join("")).join("");
       s += P("É o relatório.", { before: 240 }) + assinatura(dia);
-      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas nas vistorias da obra${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas nas vistorias da obra${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
       return s;
     };
   }
@@ -1274,15 +1329,32 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     } catch (e) { timbrado = { topo: null, marca: null }; }
     return timbrado;
   }
+  let marcaH = null;
+  async function marcaPessoal() {
+    if (marcaH) return marcaH;
+    try { const r = await fetch("img/marca-higor.png"); if (!r.ok) throw 0; const b = new Uint8Array(await r.arrayBuffer()); let t = ""; for (let i = 0; i < b.length; i += 32768) t += String.fromCharCode.apply(null, b.subarray(i, i + 32768)); marcaH = { url: "data:image/png;base64," + btoa(t), bytes: b }; }
+    catch (e) { marcaH = null; }
+    return marcaH;
+  }
   async function montarPdf(corpo) {
     const JsPDF = await pdfLibJs(), tb = await papelTimbrado();
     modoPdf = true; let s;
     try { s = await corpo(null, []); } finally { modoPdf = false; }
     const blocos = [...s.matchAll(/\u0001(.*?)\u0002/gs)].map(m => JSON.parse(m[1]));
     const doc = new JsPDF({ unit: "pt", format: "a4" });
-    const PW = 595.28, PH = 841.89, ML = 85, MR = 56.7, TW = PW - ML - MR, TOPO = 158, BASE = PH - 66, FS = 11.5, LH = FS * 1.3;
+    const PW = 595.28, PH = 841.89, ML = 85, MR = 56.7, TW = PW - ML - MR, TOPO = docPessoal() ? 118 : 158, BASE = PH - 66, FS = 11.5, LH = FS * 1.3;
     let y = TOPO;
+    const pessoal = docPessoal(), mh = pessoal ? await marcaPessoal() : null;
     const fundo = () => {
+      if (pessoal) {
+        if (mh) doc.addImage(mh.url, "PNG", ML, 34, 46, 46, "marcaH", "FAST");
+        doc.setTextColor(22, 50, 79); doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.text(pdfTxt(FISCAL.nome.toUpperCase()), ML + 58, 54);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text(pdfTxt(FISCAL.cargo), ML + 58, 70);
+        doc.setDrawColor(224, 165, 38); doc.setLineWidth(1.6); doc.line(ML, 92, PW - MR, 92);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(90);
+        RODAPE_PESSOAL().forEach((l, i) => doc.text(pdfTxt(l), PW / 2, PH - 30 + i * 9, { align: "center" }));
+        doc.setTextColor(0); doc.setFont("times", "normal"); doc.setFontSize(FS); return;
+      }
       if (tb.marca) doc.addImage(tb.marca.url, "JPEG", ML + 20.85, 85 + 124.35, 411.9, 383.7, "marca", "FAST");
       if (tb.topo) { const w = 399.4, h = w * tb.topo.h / tb.topo.w; doc.addImage(tb.topo.url, "JPEG", ML + (TW - w) / 2, 22.7, w, h, "topo", "FAST"); }
       doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(60);
@@ -1330,7 +1402,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       else if (k.k === "assinatura") {
         cabe(130); escrever(k.t, { jc: "right", antes: 18, depois: 36 });
         escrever("_______________________________________________", { jc: "center", depois: 0 });
-        escrever(FISCAL.nome, { jc: "center", b: true, depois: 0 }); escrever(FISCAL.cargo, { jc: "center", depois: 0 }); escrever(FISCAL.funcao, { jc: "center", depois: 0 });
+        escrever(FISCAL.nome, { jc: "center", b: true, depois: 0 }); escrever(FISCAL.cargo, { jc: "center", depois: 0 }); escrever(k.funcao || FISCAL.funcao, { jc: "center", depois: 0 });
       }
       else if (k.k === "assinatura2") {
         cabe(140); escrever(k.t, { jc: "right", antes: 18, depois: 40 });
@@ -1387,14 +1459,16 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
         const nf = fotos.filter(f => f.data === d.data).length; if (nf) s += campo("Fotos", `${nf} no anexo`);
       });
       s += assinatura(fim);
-      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas no período${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas no período${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
       return s;
     };
   }
   /* ---------- RDO: Relatório Diário de Obra no formato padrão ---------- */
   function assinaturaDupla(data, empresa, resp) {
-    const [y, m, d] = data.split("-"), local = `Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`;
-    const lados = [[FISCAL.nome, FISCAL.cargo, "Fiscal da Obra – Prefeitura"], [resp || " ", empresa ? `Responsável técnico – ${empresa}` : "Responsável técnico da contratada", "Contratada"]];
+    const [y, m, d] = data.split("-"), local = `${LOCAL_DOC()}, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`;
+    const lados = docPessoal()
+      ? [[FISCAL.nome, FISCAL.cargo, "Responsável técnico"], [resp || (docObra && docObra.cliente) || " ", empresa ? `Responsável – ${empresa}` : "Contratante / proprietário", empresa ? "Executora" : "Contratante"]]
+      : [[FISCAL.nome, FISCAL.cargo, "Fiscal da Obra – Prefeitura"], [resp || " ", empresa ? `Responsável técnico – ${empresa}` : "Responsável técnico da contratada", "Contratada"]];
     if (modoPdf) return B({ k: "assinatura2", t: local, lados });
     const cel = l => `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/></w:tcPr>${P("________________________________", { jc: "center", after: 0, before: 600 })}${P(l[0], { jc: "center", after: 0, b: true })}${P(l[1], { jc: "center", after: 0 })}${P(l[2], { jc: "center", after: 0 })}</w:tc>`;
     return P(local, { jc: "right", before: 360, after: 120 }) +
@@ -1444,7 +1518,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       s += pend.length ? pend.map(p => item(p.texto + (p.prazo ? ` Prazo: ${dt(p.prazo)}.` : ""))).join("") : P("Não há pendências em aberto.");
       s += secao("7. REGISTRO FOTOGRÁFICO") + P(fotos.length ? `${fotos.length} fotografia(s) no anexo.` : "Sem fotografias neste dia.");
       s += assinaturaDupla(dia, o.empresa, d.responsavel);
-      if (!soCorpo) s += await anexoFotos(fotos, zip, rels, `Fotografias do dia ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      if (!soCorpo) s += await anexoFotos(fotos, zip, rels, `Fotografias do dia ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
       return s;
     };
   }
@@ -1455,11 +1529,11 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       let s = "";
       for (let i = 0; i < dias.length; i++) s += (i ? quebra() : "") + await rdo(o, dias[i], true)(zip, rels);
       const fotos = (o.fotos || []).filter(f => dias.includes(f.data)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
-      return s + await anexoFotos(fotos, zip, rels, `Fotografias dos dias ${dt(ini)} a ${dt(fim)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      return s + await anexoFotos(fotos, zip, rels, `Fotografias dos dias ${dt(ini)} a ${dt(fim)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
     };
   }
   async function gerarRelatorio(tipo, formato = "docx") {
-    const o = curObra(); if (!o) return;
+    const o = curObra(); if (!o) return; docObra = o;
     const dia = state.relData || hojeISO(), pdf = formato === "pdf";
     const ini = state.perIni || primeiroDiario(o) || dia, fim = state.perFim || hojeISO();
     if ((tipo === "periodo" || tipo === "rdos") && ini > fim) { state.error = "A data inicial do período é depois da data final."; return render(); }
@@ -1534,8 +1608,11 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       dataBase: cx.dataBase || "", desonerado: cx.desonerado === "sim",
       bdi: { tipo, AC: m.AC[1], SG: m.SG[1], R: m.R[1], DF: m.DF[1], L: m.L[1], CP: 3.65, ISSbase: 50, ISS: 3.83, CPRB: 4.5 },
       itens: [], crono: { inicio: ym(o.dataInicio) || ym(hojeISO()), meses: 6, dist: {} },
-      proposta: { proponente: "PREFEITURA MUNICIPAL DE EDEALINA", municipio: "EDEALINA - GO", responsavel: FISCAL.nome,
-        registro: (FISCAL.cargo.match(/CREA[^,]*/) || [""])[0], art: "", prefeito: "", cargoPrefeito: "PREFEITO(A) MUNICIPAL" },
+      proposta: areaDe(o) === "pessoal"
+        ? { proponente: String(o.cliente || "").toUpperCase(), municipio: String(o.municipio || "").toUpperCase(), responsavel: FISCAL.nome,
+          registro: (FISCAL.cargo.match(/CREA[^,]*/) || [""])[0], art: "", prefeito: o.cliente || "", cargoPrefeito: "Contratante" }
+        : { proponente: "PREFEITURA MUNICIPAL DE EDEALINA", municipio: "EDEALINA - GO", responsavel: FISCAL.nome,
+          registro: (FISCAL.cargo.match(/CREA[^,]*/) || [""])[0], art: "", prefeito: "", cargoPrefeito: "PREFEITO(A) MUNICIPAL" },
       memorial: {}
     };
   }
@@ -1601,6 +1678,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     const sem = r2(servs.reduce((s, l) => s + l.totalSem, 0)), com = r2(servs.reduce((s, l) => s + l.total, 0));
     return { orc, bdi, linhas, servs, grupos, sem, com };
   }
+  const orcMes = orc => orc.dataBase || (sinapi.indice && sinapi.indice.bases[0] ? sinapi.indice.bases[0].mes : "");
   const orcTotais = o => { const c = orcCalc(o); return { comBdi: c.com, semBdi: c.sem }; };
   function orcAvisos(c) {
     const a = [];
@@ -1751,8 +1829,8 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
         <label class="f">Responsável técnico${orcFld("orc-p-resp", "proposta.responsavel", orc.proposta.responsavel, "text", ro)}</label>
         <label class="f">CREA / CAU${orcFld("orc-p-reg", "proposta.registro", orc.proposta.registro, "text", ro)}</label>
         <label class="f">ART / RRT${orcFld("orc-p-art", "proposta.art", orc.proposta.art, "text", ro)}</label>
-        <label class="f">Prefeito(a)${orcFld("orc-p-pref", "proposta.prefeito", orc.proposta.prefeito, "text", ro)}</label>
-        <label class="f">Cargo${orcFld("orc-p-cargo", "proposta.cargoPrefeito", orc.proposta.cargoPrefeito, "text", ro)}</label>
+        <label class="f">${areaDe(o) === "pessoal" ? "Quem assina pelo contratante" : "Prefeito(a)"}${orcFld("orc-p-pref", "proposta.prefeito", orc.proposta.prefeito, "text", ro)}</label>
+        <label class="f">${areaDe(o) === "pessoal" ? "Qualificação" : "Cargo"}${orcFld("orc-p-cargo", "proposta.cargoPrefeito", orc.proposta.cargoPrefeito, "text", ro)}</label>
       </div>
       ${w && c.servs.some(l => /^SINAPI/.test(l.x.fonte)) ? `<div class="btns" style="margin-top:12px"><button data-act="orc-reprecificar" ${state.busy ? "disabled" : ""}>${state.busy === "orc-rep" ? "Atualizando…" : `Atualizar preços SINAPI para ${esc(baseTxt)} ${orc.desonerado ? "desonerado" : "não desonerado"}`}</button></div>` : ""}
       ${ind && ind.bases[0] ? `<p class="small muted" style="margin:8px 0 0">Base mais nova no site: SINAPI-GO ${mesTxt(ind.bases[0].mes)}${ind.bases[0].atualizadoEm ? `, carregada em ${dt(ind.bases[0].atualizadoEm)}` : ""}. A base é atualizada todo mês, e cada orçamento fica na data-base escolhida até você mudar.</p>` : ""}
@@ -1810,11 +1888,11 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   function cabecalhoOrc(o, c, nome) {
     const orc = c.orc;
     return titulo(nome) + P("", { after: 120 }) + campo("Obra", o.nome) + campo("Objeto", o.objeto) + campo("Local", [o.endereco, orc.proposta.municipio].filter(Boolean).join(" – ")) +
-      campo("Proponente", orc.proposta.proponente) + campo("Referência", `SINAPI-GO ${orc.dataBase ? mesTxt(orc.dataBase) : ""} – ${orc.desonerado ? "desonerado" : "não desonerado"}`) +
+      campo("Proponente", orc.proposta.proponente) + campo("Referência", `SINAPI-GO ${mesTxt(orcMes(orc))} – ${orc.desonerado ? "desonerado" : "não desonerado"}`) +
       campo("BDI", pctBdi(c.bdi)) + P("", { after: 120 });
   }
   function assinaturaOrc(c) {
-    const p = c.orc.proposta, [y, m, d] = hojeISO().split("-"), local = `${(p.municipio || "Edealina – GO").replace(/\s-\s/, " – ")}, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`;
+    const p = c.orc.proposta, [y, m, d] = hojeISO().split("-"), local = `${(p.municipio || LOCAL_DOC()).replace(/\s-\s/, " – ")}, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`;
     const lados = [[p.responsavel || " ", [p.registro, p.art ? "ART " + p.art : ""].filter(Boolean).join(" – ") || " ", "Responsável técnico"], [p.prefeito || " ", p.cargoPrefeito || " ", p.proponente || " "]];
     if (modoPdf) return B({ k: "assinatura2", t: local, lados });
     const cel = l => `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/></w:tcPr>${P("________________________________", { jc: "center", after: 0, before: 600 })}${P(l[0], { jc: "center", after: 0, b: true })}${P(l[1], { jc: "center", after: 0 })}${P(l[2], { jc: "center", after: 0 })}</w:tc>`;
@@ -1860,7 +1938,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
             [{ t: "", b: true }, { t: "TOTAL", b: true }, { t: num2(c.com), b: true }, { t: "100%", b: true }, "", ""]], [700, 2400, 1200, 900, 1470, 2400]) + assinaturaOrc(c); },
     memorial: (o, c) => { const m = c.orc.memorial; let s = titulo("MEMORIAL DESCRITIVO") + P("", { after: 120 });
       s += secao("1. IDENTIFICAÇÃO") + campo("Obra", o.nome) + campo("Objeto", o.objeto) + campo("Tipo de obra", o.tipoObra) + campo("Local", [o.endereco, c.orc.proposta.municipio].filter(Boolean).join(" – ")) +
-        campo("Coordenadas", coordTxt(o)) + campo("Proponente", c.orc.proposta.proponente) + campo("Valor orçado", `${brl(c.com)} (BDI de ${pctBdi(c.bdi)})`) + campo("Referência de preços", `SINAPI-GO ${c.orc.dataBase ? mesTxt(c.orc.dataBase) : ""}`);
+        campo("Coordenadas", coordTxt(o)) + campo("Proponente", c.orc.proposta.proponente) + campo("Valor orçado", `${brl(c.com)} (BDI de ${pctBdi(c.bdi)})`) + campo("Referência de preços", `SINAPI-GO ${mesTxt(orcMes(c.orc))}`);
       s += secao("2. CONSIDERAÇÕES GERAIS") + String(m._geral || memorialGeralPadrao(o)).split(/\n+/).map(t => P(t)).join("");
       c.grupos.forEach((g, i) => {
         s += secao(`${i + 3}. ${g.x.descricao.toUpperCase()}`);
@@ -1870,7 +1948,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       return s + assinaturaOrc(c); }
   };
   async function gerarDocOrc(tipo, formato) {
-    const o = curObra(); if (!o) return;
+    const o = curObra(); if (!o) return; docObra = o;
     const c = orcCalc(o), pdf = formato === "pdf";
     if (!c.servs.length) { state.error = "Lance pelo menos um serviço na planilha antes de gerar os documentos."; return render(); }
     state.busy = `orcdoc-${tipo}-${formato}`; state.error = state.info = state.warn = ""; render();
@@ -1893,7 +1971,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   async function gerarExcelOrc() {
     const o = curObra(), c = orcCalc(o); state.busy = "orc-xlsx"; state.error = ""; render();
     try {
-      const X = await sheetLib(), linhas = [["PLANILHA ORÇAMENTÁRIA"], ["Obra", o.nome], ["Referência", `SINAPI-GO ${c.orc.dataBase ? mesTxt(c.orc.dataBase) : ""} ${c.orc.desonerado ? "desonerado" : "não desonerado"}`], ["BDI", c.bdi], [],
+      const X = await sheetLib(), linhas = [["PLANILHA ORÇAMENTÁRIA"], ["Obra", o.nome], ["Referência", `SINAPI-GO ${mesTxt(orcMes(c.orc))} ${c.orc.desonerado ? "desonerado" : "não desonerado"}`], ["BDI", c.bdi], [],
         ["Item", "Nível", "Fonte", "Código", "Descrição", "Unidade", "Memória de cálculo", "Quantidade", "Custo unitário", "Preço com BDI", "Total"]];
       c.linhas.forEach(l => linhas.push(l.x.nivel === "servico" ? [l.num, "Serviço", l.x.fonte, l.x.codigo, l.x.descricao, l.x.unidade, l.x.memoria || "", l.qtd, l.custo, l.preco, l.total] : [l.num, NIVEL_TXT[l.x.nivel], "", "", l.x.descricao, "", "", "", "", "", l.total]));
       linhas.push([], ["", "", "", "", "Total sem BDI", "", "", "", "", "", c.sem], ["", "", "", "", "Total com BDI", "", "", "", "", "", c.com]);
@@ -2094,6 +2172,7 @@ Responda só com JSON: {"_geral": "considerações gerais em 1 ou 2 parágrafos"
     if (t.dataset.ver) return abrirPreview(t.dataset.ver, t.dataset.nome);
     if (t.dataset.aba) { state.preview.sheet = Number(t.dataset.aba); return render(); }
     if (t.dataset.filtro) { state.filtro = t.dataset.filtro; return render(); }
+    if (t.dataset.area) { state.area = t.dataset.area; state.filtro = "todas"; state.busca = ""; return go("lista"); }
     if (t.dataset.abrir) { try { history.replaceState(null, "", "#" + t.dataset.abrir); } catch (e) {} state.tab = "resumo"; state.med = null; state.doc = null; state.cron = null; state.reg = null; state.preview = null; state.and = null; return go(t.dataset.abrir); }
     if (t.dataset.alerta) { try { history.replaceState(null, "", "#" + t.dataset.alerta); } catch (e) {} state.tab = t.dataset.alertaTab || "resumo"; state.med = null; state.doc = null; state.cron = null; state.reg = null; state.preview = null; state.and = null; return go(t.dataset.alerta); }
     if (t.dataset.tab) { state.preview = null; state.reg = null; state.tab = t.dataset.tab; state.error = state.info = state.warn = ""; state.confirm = ""; return render(); }
@@ -2127,7 +2206,7 @@ Responda só com JSON: {"_geral": "considerações gerais em 1 ou 2 parágrafos"
     if (t.dataset.yes) {
       const [tipo, id] = t.dataset.yes.split(/:(.*)/s); state.confirm = "";
       try {
-        if (tipo === "obra") { await state.db.collection("obras").doc(id).delete(); state.draft = null; state.editId = null; go("lista"); state.info = "Obra excluída."; return render(); }
+        if (tipo === "obra") { if (state.draft) state.area = areaDe(state.draft); await state.db.collection("obras").doc(id).delete(); state.draft = null; state.editId = null; go("lista"); state.info = "Obra excluída."; return render(); }
         if (tipo === "med") await patch(o, { medicoes: (o.medicoes || []).filter(x => x.id !== id) });
         if (tipo === "reg") { const [lista, rid] = id.split(/:(.*)/s); if (REG[lista]) await patch(o, { [lista]: (o[lista] || []).filter(x => x.id !== rid) }); }
         if (tipo === "doc") { const d = (o.documentos || []).find(x => x.id === id); await patch(o, { documentos: (o.documentos || []).filter(x => x.id !== id) }); for (const f of (d?.arquivos || [])) await state.assets?.delete(f.id).catch(() => {}); }
@@ -2182,11 +2261,12 @@ Responda só com JSON: {"_geral": "considerações gerais em 1 ou 2 parágrafos"
     }
     if (a === "prev-fechar") { state.preview = null; return render(); }
     if (a === "prev-baixar") return baixarOriginal();
-    if (a === "voltar") { try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} return go("lista"); }
+    if (a === "voltar") { if (o) state.area = areaDe(o); try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} return go("lista"); }
+    if (a === "inicio") { state.area = null; return go("inicio"); }
     if (a === "imp-ler") return lerLicitacao();
-    if (a === "nova") { state.impFiles = []; state.editId = null; state.draft = { situacao: "andamento", caixa: {}, pendencias: [], vistorias: [], aditivos: [], relatorios: [] }; return go("editar"); }
+    if (a === "nova") { state.impFiles = []; state.editId = null; state.draft = { area: state.area || "prefeitura", situacao: "andamento", caixa: {}, pendencias: [], vistorias: [], aditivos: [], relatorios: [] }; return go("editar"); }
     if (a === "editar") { state.impFiles = []; state.editId = o.id; state.draft = limpo(o); state.draft.coordenadas = coordTxt(o); return go("editar"); }
-    if (a === "cancelar") { state.impFiles = []; const back = state.editId || "lista"; state.draft = null; state.editId = null; return go(back); }
+    if (a === "cancelar") { state.impFiles = []; const back = state.editId || "lista"; if (state.draft) state.area = areaDe(state.draft); state.draft = null; state.editId = null; return go(back); }
     // Documentos
     if (a === "doc-new") { state.doc = { categoria: CATS[0], titulo: "", data: "" }; state.docFiles = []; return render(); }
     if (a === "doc-cancel") { state.doc = null; state.docFiles = []; state.error = ""; return render(); }
@@ -2286,7 +2366,8 @@ Responda só com JSON: {"_geral": "considerações gerais em 1 ou 2 parágrafos"
     if (el.id === "imp-files") { [...el.files].forEach(f => state.impFiles.push({ file: f, cat: catPorNome(f.name) })); state.error = ""; return render(); }
     if (state.draft && (el.dataset.l || el.dataset.k || el.dataset.cx)) {
       const val = el.type === "checkbox" ? el.checked : el.value;
-      if (el.dataset.l) state.draft[el.dataset.l][Number(el.dataset.i)][el.dataset.k] = val; else if (el.dataset.cx) state.draft.caixa[el.dataset.cx] = val; else state.draft[el.dataset.k] = val; return;
+      if (el.dataset.l) state.draft[el.dataset.l][Number(el.dataset.i)][el.dataset.k] = val; else if (el.dataset.cx) state.draft.caixa[el.dataset.cx] = val; else state.draft[el.dataset.k] = val;
+      if (el.id === "f-area") render(); return;
     }
     if (el.id === "med-files" || el.id === "med-cam") { state.medFiles.push(...el.files); state.error = ""; return render(); }
     if (el.id === "doc-files") { state.docFiles.push(...el.files); state.error = ""; return render(); }
@@ -2328,7 +2409,7 @@ Responda só com JSON: {"_geral": "considerações gerais em 1 ou 2 parágrafos"
     const db = await use("db");
     state.db = db || null;
     if (!db) { render(); return; }
-    try { const user = await use("user"); if (user && (await user.can("data.write")) === false) state.readOnly = true; } catch (e) {}
+    try { const user = await use("user"); if (user && (await user.can("data.write")) === false) state.readOnly = true; if (user && user.id) state.userId = await user.id(); } catch (e) {}
     db.collection("obras").onSnapshot(snap => {
       state.obras = snap.docs.map(d => ({ id: d.id, ...JSON.parse(JSON.stringify(d.data())) }));
       const first = !state.loaded; state.loaded = true;

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Higor Rodrigues de Souza, Engenheiro Civil">
+  <rect width="120" height="120" rx="22" fill="#16324f"/>
+  <!-- H desenhado como um perfil de aço em I (abas e alma) -->
+  <path fill="#ffffff" d="M26 24h26v9h-8v22h32v-22h-8v-9h26v9h-8v54h8v9h-26v-9h8v-22h-32v22h8v9h-26v-9h8v-54h-8z"/>
+  <!-- linha de nível / régua -->
+  <rect x="26" y="102" width="68" height="5" rx="2.5" fill="#e0a526"/>
+  <rect x="58" y="98" width="4" height="13" rx="2" fill="#e0a526"/>
+</svg>

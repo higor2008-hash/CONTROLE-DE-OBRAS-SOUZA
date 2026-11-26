@@ -81,7 +81,7 @@ drop policy if exists "ver equipe" on public.equipe;
 create policy "ver equipe" on public.equipe for select to authenticated
   using (user_id = auth.uid() or public.meu_papel() = 'admin');
 
--- Obras: ler exige ser da equipe; incluir, alterar e excluir exige admin ou editor.
+-- Obras da Prefeitura: ler exige ser da equipe; incluir, alterar e excluir exige admin ou editor.
 drop policy if exists "logados leem obras" on public.obras;
 drop policy if exists "logados incluem obras" on public.obras;
 drop policy if exists "logados alteram obras" on public.obras;
@@ -90,14 +90,28 @@ drop policy if exists "equipe le obras" on public.obras;
 drop policy if exists "editores incluem obras" on public.obras;
 drop policy if exists "editores alteram obras" on public.obras;
 drop policy if exists "editores excluem obras" on public.obras;
+-- Obras da área "pessoal" (data.area = 'pessoal') são só de quem as criou (data.dono):
+-- ninguém mais da equipe vê, altera ou apaga, nem os administradores.
+create or replace function public.pode_ver_obra(d jsonb) returns boolean
+language sql stable security definer set search_path = ''
+as $$ select public.meu_papel() is not null and (coalesce(d->>'area', 'prefeitura') <> 'pessoal' or d->>'dono' = auth.uid()::text) $$;
+create or replace function public.pode_editar_obra(d jsonb) returns boolean
+language sql stable security definer set search_path = ''
+as $$ select case when coalesce(d->>'area', 'prefeitura') = 'pessoal' then public.meu_papel() is not null and d->>'dono' = auth.uid()::text
+                  else public.meu_papel() in ('admin', 'editor') end $$;
+revoke all on function public.pode_ver_obra(jsonb) from public, anon;
+revoke all on function public.pode_editar_obra(jsonb) from public, anon;
+grant execute on function public.pode_ver_obra(jsonb) to authenticated;
+grant execute on function public.pode_editar_obra(jsonb) to authenticated;
+
 create policy "equipe le obras" on public.obras for select to authenticated
-  using (public.meu_papel() is not null);
+  using (public.pode_ver_obra(data));
 create policy "editores incluem obras" on public.obras for insert to authenticated
-  with check (public.meu_papel() in ('admin', 'editor'));
+  with check (public.pode_editar_obra(data));
 create policy "editores alteram obras" on public.obras for update to authenticated
-  using (public.meu_papel() in ('admin', 'editor')) with check (public.meu_papel() in ('admin', 'editor'));
+  using (public.pode_editar_obra(data)) with check (public.pode_editar_obra(data));
 create policy "editores excluem obras" on public.obras for delete to authenticated
-  using (public.meu_papel() in ('admin', 'editor'));
+  using (public.pode_editar_obra(data));
 
 -- Arquivos: enviar, alterar e apagar exige admin ou editor.
 drop policy if exists "logados enviam arquivos" on storage.objects;
