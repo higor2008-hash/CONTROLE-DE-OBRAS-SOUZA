@@ -4,7 +4,15 @@
   const CATS = ["Projeto arquitetônico", "Projeto estrutural", "Projeto elétrico", "Projeto hidrossanitário", "Outros projetos",
     "PO / Planilha orçamentária", "Referências Caixa / SINAPI", "Cronograma físico-financeiro", "Memorial descritivo",
     "ART / RRT", "Contrato e aditivos", "Outros documentos"];
-  const TABS = [["resumo", "Resumo"], ["diario", "Diário de obra"], ["servicos", "Serviços"], ["documentos", "Projetos e documentos"], ["medicoes", "Medições"], ["cronograma", "Cronograma"], ["fotos", "Fotos"], ["vistorias", "Vistorias e pendências"], ["notificacoes", "Notificações e prazos"]];
+  const TABS = [["resumo", "Resumo"], ["orcamento", "Orçamento"], ["diario", "Diário de obra"], ["servicos", "Serviços"], ["documentos", "Projetos e documentos"], ["medicoes", "Medições"], ["cronograma", "Cronograma"], ["fotos", "Fotos"], ["vistorias", "Vistorias e pendências"], ["notificacoes", "Notificações e prazos"]];
+  const TIPOS_OBRA = ["Edificação nova", "Reforma e ampliação", "Pavimentação e recapeamento", "Drenagem e bueiros", "Praça, parque e paisagismo",
+    "Rede de água e esgoto", "Rede elétrica e iluminação pública", "Ponte e obra de arte especial", "Quadra e equipamento esportivo", "Habitação / casa", "Outra"];
+  /* Duas áreas no mesmo site: a fiscalização da Prefeitura e as obras pessoais do engenheiro */
+  const AREAS = {
+    prefeitura: { nome: "Prefeitura de Edealina", eyebrow: "Prefeitura Municipal de Edealina · Fiscalização de Obras", titulo: "Controle de Obras", resumo: "Fiscalização das obras do Município" },
+    pessoal: { nome: "Higor Rodrigues de Souza", eyebrow: "Obras particulares · Orçamentos e projetos", titulo: "Minhas Obras", resumo: "Obras, orçamentos e projetos particulares" }
+  };
+  const areaDe = o => o && o.area === "pessoal" ? "pessoal" : "prefeitura";
   const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
   const PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
   const SHEETJS = ["https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"];
@@ -15,7 +23,7 @@
   const app = document.getElementById("app");
   const state = { db: null, assets: null, sample: null, imgLimits: null, obras: [], loaded: false, view: "lista", tab: "resumo",
     filtro: "todas", busca: "", draft: null, editId: null, error: "", info: "", warn: "", readOnly: false, confirm: "",
-    med: null, medFiles: [], reg: null, todosAlertas: false, doc: null, docFiles: [], cron: null, fotoData: "", busy: "", preview: null, downloads: null, impFiles: [], and: null };
+    med: null, medFiles: [], reg: null, todosAlertas: false, doc: null, docFiles: [], cron: null, fotoData: "", busy: "", preview: null, downloads: null, impFiles: [], and: null, area: null, userId: null };
 
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const isNum = v => v !== null && v !== undefined && v !== "" && !isNaN(Number(v));
@@ -96,19 +104,36 @@
   const canWrite = () => !state.readOnly && !!state.db;
   const canUpload = () => canWrite() && !!state.assets;
 
+  const areaAtual = () => state.view === "editar" ? areaDe(state.draft) : state.view !== "lista" && state.view !== "inicio" && curObra() ? areaDe(curObra()) : state.area || "prefeitura";
   function header() {
-    return `<header class="top">
-      <div class="logo-pref"><img src="img/logo-prefeitura.png" alt="Prefeitura de Edealina" width="900" height="272"></div>
-      <div class="titulo"><div class="eyebrow">Prefeitura Municipal de Edealina · Fiscalização de Obras</div><h1>Controle de Obras</h1></div>
-      ${state.view === "lista" && canWrite() ? `<button class="primary" data-act="nova">+ Nova obra</button>` : ""}
+    if (state.view === "inicio") return `<header class="top"><div class="titulo"><div class="eyebrow">Higor Rodrigues de Souza · Engenheiro Civil</div><h1>Controle de Obras</h1></div></header>`;
+    const ar = areaAtual(), A = AREAS[ar];
+    return `<header class="top area-${ar}">
+      ${ar === "pessoal" ? `<div class="logo-pessoal"><img src="img/marca-higor.svg" alt="" width="64" height="64"><div><b>Higor Rodrigues de Souza</b><span>Engenheiro Civil</span></div></div>`
+        : `<div class="logo-pref"><img src="img/logo-prefeitura.png" alt="Prefeitura de Edealina" width="900" height="272"></div>`}
+      <div class="titulo"><div class="eyebrow">${esc(A.eyebrow)}</div><h1>${esc(A.titulo)}</h1></div>
+      <div class="head-btns">${state.view === "lista" ? `<button class="ghost-claro" data-act="inicio">Trocar de área</button>` : ""}${state.view === "lista" && canWrite() ? `<button class="primary" data-act="nova">+ Nova obra</button>` : ""}</div>
     </header>`;
+  }
+  /* Tela inicial: escolher entre a parte da Prefeitura e a parte pessoal */
+  function renderInicio() {
+    const cont = ar => state.obras.filter(o => areaDe(o) === ar), card = (ar, logo) => { const os = cont(ar), at = os.filter(o => o.situacao !== "concluida"), al = os.flatMap(alertas).filter(x => x.nivel === "bad").length; return `
+      <button class="area-card area-${ar}" data-area="${ar}">
+        <span class="area-logo">${logo}</span>
+        <span class="area-txt"><span class="eyebrow">${ar === "pessoal" ? "Pessoal" : "Prefeitura"}</span><b>${esc(AREAS[ar].nome)}</b><span class="muted">${esc(AREAS[ar].resumo)}</span>
+          <span class="area-num">${state.loaded ? `${os.length} obra${os.length === 1 ? "" : "s"}${at.length ? ` · ${at.length} em aberto` : ""}${al ? ` · <span style="color:var(--bad)">${al} alerta${al > 1 ? "s" : ""}</span>` : ""}` : "Carregando…"}</span></span>
+        <span class="seta">›</span>
+      </button>`; };
+    app.innerHTML = header() + msgs() + `<p class="muted" style="margin:0 0 14px">Escolha onde você quer entrar.</p>
+      <div class="areas">${card("prefeitura", `<img src="img/logo-prefeitura.png" alt="Prefeitura de Edealina" width="900" height="272">`)}${card("pessoal", `<img src="img/marca-higor.svg" alt="" width="72" height="72"><span class="area-nome"><b>Higor Rodrigues de Souza</b>Engenheiro Civil</span>`)}</div>`;
   }
   const msgs = () => (state.error ? `<div class="msg err">${esc(state.error)}</div>` : "") + (state.warn ? `<div class="msg warn">${esc(state.warn)}</div>` : "") + (state.info ? `<div class="msg info">${esc(state.info)}</div>` : "");
 
   function render() {
     const y = window.scrollY;
     if (state.view === "editar") { renderForm(); return; }
-    if (state.view !== "lista") { const o = curObra(); if (o) { renderFicha(o); rotularTabelas(); mostrarAba(); window.scrollTo(0, y); return; } state.view = "lista"; }
+    if (state.view === "inicio" || (state.view === "lista" && !state.area)) { state.view = "inicio"; renderInicio(); return; }
+    if (state.view !== "lista") { const o = curObra(); if (o) { renderFicha(o); rotularTabelas(); mostrarAba(); if (state.tab === "orcamento") orcResultados(); window.scrollTo(0, y); return; } state.view = "lista"; }
     renderLista();
   }
   /* No celular as tabelas viram cartões; cada célula recebe o nome da sua coluna */
@@ -127,7 +152,7 @@
 
   /* ---------- Lista ---------- */
   function renderLista() {
-    const obras = state.obras;
+    const obras = state.obras.filter(o => areaDe(o) === state.area);
     const cont = k => obras.filter(o => o.situacao === k).length;
     const ativos = obras.filter(o => o.situacao !== "concluida");
     let lista = obras.filter(o => state.filtro === "todas" || o.situacao === state.filtro);
@@ -158,7 +183,7 @@
           <span class="stripe bg-${esc(o.situacao || "nao_iniciada")}"></span>
           <span class="main">
             <span class="name">${esc(o.nome)}</span>
-            <span class="meta"><span>${esc(o.numero || "Sem nº de contrato")}</span><span>${esc(o.empresa || "Empresa não informada")}</span><span class="mono">${brl(vt)}</span>${md ? `<span class="mono">Medido ${pctTxt(pct(md, vt))}</span>` : ""}</span>
+            <span class="meta">${o.tipoObra ? `<span>${esc(o.tipoObra)}</span>` : ""}<span>${esc(o.numero || "Sem nº de contrato")}</span><span>${esc(o.empresa || "Empresa não informada")}</span><span class="mono">${brl(vt)}</span>${md ? `<span class="mono">Medido ${pctTxt(pct(md, vt))}</span>` : ""}</span>
             <span class="meta">${prazoTxt(o)}${cs ? `<span>${esc(cs.txt)}</span>` : ""}${pendAbertas(o) ? `<span>${pendAbertas(o)} pendência${pendAbertas(o) > 1 ? "s" : ""} aberta${pendAbertas(o) > 1 ? "s" : ""}</span>` : ""}${ultimaVist(o) ? `<span>Última vistoria ${dt(ultimaVist(o).data)}</span>` : ""}</span>
           </span>
           <span class="side">${pill(o.situacao)}${bar(o.percentual)}</span>
@@ -170,8 +195,8 @@
 
   /* ---------- Ficha ---------- */
   function renderFicha(o) {
-    const n = { diario: (o.diario || []).length, servicos: (o.servicos || []).length, notificacoes: (o.notificacoes || []).length + (o.prazos || []).length, documentos: (o.documentos || []).length, medicoes: (o.medicoes || []).length, fotos: (o.fotos || []).length, vistorias: (o.vistorias || []).length + pendAbertas(o) };
-    const corpo = { resumo: tabResumo, diario: tabDiario, servicos: tabServicos, notificacoes: tabNotificacoes, documentos: tabDocumentos, medicoes: tabMedicoes, cronograma: tabCronograma, fotos: tabFotos, vistorias: tabVistorias }[state.tab] || tabResumo;
+    const n = { orcamento: orcItens(o).filter(x => x.nivel === "servico").length, diario: (o.diario || []).length, servicos: (o.servicos || []).length, notificacoes: (o.notificacoes || []).length + (o.prazos || []).length, documentos: (o.documentos || []).length, medicoes: (o.medicoes || []).length, fotos: (o.fotos || []).length, vistorias: (o.vistorias || []).length + pendAbertas(o) };
+    const corpo = { resumo: tabResumo, orcamento: tabOrcamento, diario: tabDiario, servicos: tabServicos, notificacoes: tabNotificacoes, documentos: tabDocumentos, medicoes: tabMedicoes, cronograma: tabCronograma, fotos: tabFotos, vistorias: tabVistorias }[state.tab] || tabResumo;
     app.innerHTML = header() + `
       <button class="ghost back" data-act="voltar">← Todas as obras</button>
       <div class="ficha-head">
@@ -216,6 +241,7 @@
         <div class="tile"><div class="eyebrow">Cronograma</div><div style="margin-top:6px">${cc.status ? `<span class="pill s-${cc.status.cls}">${esc(cc.status.txt)}</span>` : `<span class="muted small">Cronograma não lançado</span>`}</div></div>
       </div>
       <dl class="kv">
+        ${kv("Tipo de obra", esc(o.tipoObra || "—"))}
         ${kv("Contrato / instrumento", esc(o.numero || "—"))}
         ${kv("Modalidade", esc(o.modalidade || "—"))}
         ${kv("Empresa", esc(o.empresa || "—"))}
@@ -237,8 +263,9 @@
           ${kv("Desoneração", cx.desonerado === "sim" ? "Desonerado" : cx.desonerado === "nao" ? "Não desonerado" : "—")}
           ${kv("BDI", isNum(cx.bdi) ? `<span class="mono">${esc(cx.bdi)}%</span>` : "—")}
           ${kv("Contrato de repasse / operação", esc(cx.operacao || "—"))}
+          ${orcItens(o).length ? kv("Orçamento no site", `<span class="mono">${brl(orcTotais(o).comBdi)}</span> <button class="ghost sm" data-tab="orcamento">Abrir</button>`) : ""}
         </dl>
-        <p class="small muted" style="margin:10px 0 0">Os arquivos da PO e das composições ficam na aba Projetos e documentos.</p>
+        <p class="small muted" style="margin:10px 0 0">Monte a planilha na aba Orçamento. Os arquivos da PO e das composições ficam na aba Projetos e documentos.</p>
       </section>
       ${o.observacoes ? `<section class="blk"><header><h3>Situação atual</h3></header><div class="note">${esc(o.observacoes)}</div></section>` : ""}
       <section class="blk"><header><h3>Pendências abertas</h3><button class="ghost" data-tab="vistorias">Ver todas</button></header>
@@ -536,7 +563,7 @@
     for (const f of fotos.slice(0, 4)) { try { const b = await (await fetch(blob(f.id))).blob(); if (/^image\/(jpeg|png|webp|gif)$/.test(b.type)) imgs.push(b); } catch (e) {} }
     state.busy = "dia-claude"; state.error = state.warn = ""; state.info = "O Claude está escrevendo o diário do dia…"; render();
     try {
-      const res = await state.sample.json(`Você é engenheiro civil fiscal de obra pública da Prefeitura de Edealina-GO. Escreva o diário de obra (RDO) deste dia, em português formal e objetivo, só com fatos que estejam nos dados ou nas fotos; não invente quantidades nem serviços.
+      const res = await state.sample.json(`${areaDe(o) === "pessoal" ? "Você é o engenheiro civil responsável técnico desta obra." : "Você é engenheiro civil fiscal de obra pública da Prefeitura de Edealina-GO."} Escreva o diário de obra (RDO) deste dia, em português formal e objetivo, só com fatos que estejam nos dados ou nas fotos; não invente quantidades nem serviços.
 Dados: ${JSON.stringify(ctx)}
 Responda só com JSON: {"servicos": "serviços executados no dia, um por linha começando com – ", "ocorrencias": "ocorrências, condições de segurança, orientações à empresa e pendências relevantes, um por linha começando com – (vazio se não houver)"}`, imgs.length ? { images: imgs } : undefined);
       if (res && typeof res.servicos === "string") it.servicos = res.servicos.trim();
@@ -683,11 +710,14 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       ${importHtml()}
       <form id="form" novalidate>
         <section class="blk"><header><h3>Dados da obra</h3></header><div class="grid">
+          <label class="f">Área<select id="f-area" data-k="area"><option value="prefeitura" ${areaDe(d) === "prefeitura" ? "selected" : ""}>Prefeitura de Edealina</option><option value="pessoal" ${areaDe(d) === "pessoal" ? "selected" : ""}>Pessoal (minhas obras)</option></select></label>
           ${f("nome", "Nome da obra *", "text", true)}
           ${f("objeto", "Objeto", "text", true)}
+          <label class="f">Tipo de obra<select id="f-tipoObra" data-k="tipoObra"><option value="">—</option>${TIPOS_OBRA.map(t => `<option ${d.tipoObra === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>
           ${f("numero", "Contrato / instrumento")}
           ${f("modalidade", "Modalidade")}
-          ${f("empresa", "Empresa contratada")}
+          ${areaDe(d) === "pessoal" ? f("cliente", "Cliente / proprietário") : ""}
+          ${f("empresa", areaDe(d) === "pessoal" ? "Empresa executora (se houver)" : "Empresa contratada")}
           ${f("cnpj", "CNPJ")}
           ${f("fonte", "Fonte de recurso")}
           ${f("valor", "Valor inicial (R$)", "number")}
@@ -699,6 +729,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
         </div></section>
         <section class="blk"><header><h3>Localização</h3></header><div class="grid">
           ${f("endereco", "Endereço", "text", true)}
+          ${f("municipio", "Município - UF", "text", false, "Ex.: Edealina - GO")}
           ${f("coordenadas", "Coordenadas", "text", true, "Ex.: S 17°25'33\" W 49°39'36\" ou -17.4258, -49.6600")}
         </div><p class="small muted" style="margin:8px 0 0">Copie as coordenadas do Google Maps ou da foto georreferenciada.</p></section>
         <section class="blk"><header><h3>Orçamento e referências Caixa</h3></header><div class="grid">
@@ -740,6 +771,9 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     ["valorPO", "bdi"].forEach(k => { d.caixa[k] = isNum(d.caixa[k]) ? Number(d.caixa[k]) : null; });
     (d.aditivos || []).forEach(a => { a.valor = isNum(a.valor) ? Number(a.valor) : null; });
     (d.vistorias || []).forEach(v => { v.percentual = isNum(v.percentual) ? Number(v.percentual) : null; });
+    d.area = areaDe(d);
+    if (d.area === "pessoal" && !d.dono && state.userId) d.dono = state.userId;
+    state.area = d.area;
     d.atualizadoEm = new Date().toISOString();
     let id = state.editId;
     if (!id) { id = slug(d.nome); if (state.obras.some(o => o.id === id)) id += "-" + Date.now().toString(36); }
@@ -747,6 +781,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     try {
       if (btn) btn.textContent = state.impFiles.length ? "Salvando e enviando arquivos…" : "Salvando…";
       await state.db.collection("obras").doc(id).set(limpo(d));
+      if (!state.obras.some(x => x.id === id)) state.obras = [...state.obras, { id, ...limpo(d) }];
       let anexos = 0, falhaAnexo = "";
       try { anexos = await anexarImportados(id); } catch (e) { falhaAnexo = erroTxt(e, "anexar os documentos"); }
       state.impFiles = []; state.draft = null; state.editId = null; state.tab = "resumo"; go(id);
@@ -1066,6 +1101,11 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   const FISCAL = { nome: "Higor Rodrigues de Souza", cargo: "Engenheiro Civil – CREA-GO 1017177278D-2", funcao: "Fiscal da Obra" };
   const JSZIP = ["https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"];
   const MODELO = window.CONTROLE_SITE ? { url: "modelos/papel-timbrado.docx" } : { url: "/_blob/0c0b5d47dcd5cdc1b254395f91d58c60", base64: true };
+  let docObra = null;
+  const docPessoal = () => areaDe(docObra) === "pessoal";
+  const LOCAL_DOC = () => docPessoal() ? (String(docObra.municipio || "").replace(/\s+-\s+/, " – ") || "Goiás") : "Edealina – GO";
+  const FUNCAO_DOC = () => docPessoal() ? "Responsável técnico" : FISCAL.funcao;
+  const RODAPE_PESSOAL = () => [`${FISCAL.nome} · ${FISCAL.cargo}`];
   const MESES_EXT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
   async function zipLib() {
     if (window.JSZip) return window.JSZip;
@@ -1097,10 +1137,10 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   }
   function assinatura(data) {
     const [y, m, d] = data.split("-");
-    if (modoPdf) return B({ k: "assinatura", t: `Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.` });
-    return P(`Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`, { jc: "right", before: 360, after: 720 }) +
+    if (modoPdf) return B({ k: "assinatura", t: `${LOCAL_DOC()}, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`, funcao: FUNCAO_DOC() });
+    return P(`${LOCAL_DOC()}, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`, { jc: "right", before: 360, after: 720 }) +
       P("_______________________________________________", { jc: "center", after: 0, keep: true }) +
-      P(FISCAL.nome, { jc: "center", after: 0, b: true, keep: true }) + P(FISCAL.cargo, { jc: "center", after: 0, keep: true }) + P(FISCAL.funcao, { jc: "center", after: 0 });
+      P(FISCAL.nome, { jc: "center", after: 0, b: true, keep: true }) + P(FISCAL.cargo, { jc: "center", after: 0, keep: true }) + P(FUNCAO_DOC(), { jc: "center", after: 0 });
   }
   function identificacao(o) {
     const cx = o.caixa || {};
@@ -1111,7 +1151,8 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       campo("Valor com aditivos", (o.aditivos || []).some(a => a.valor) ? brl(valorTotal(o)) : "") +
       campo("Início", o.dataInicio ? dt(o.dataInicio) : "") + campo("Prazo original", o.prazoFinal ? dt(o.prazoFinal) : "") +
       campo("Prazo vigente", prazoAtual(o) && prazoAtual(o) !== o.prazoFinal ? dt(prazoAtual(o)) : "") +
-      campo("Fiscal da obra", `${FISCAL.nome}, ${FISCAL.cargo}`);
+      campo(docPessoal() ? "Cliente / proprietário" : "", docPessoal() ? o.cliente : "") +
+      campo(docPessoal() ? "Responsável técnico" : "Fiscal da obra", `${FISCAL.nome}, ${FISCAL.cargo}`);
   }
   function situacaoTxt(o, sit, perc) {
     const vt = valorTotal(o), md = medido(o), cc = cronoCalc(o);
@@ -1152,6 +1193,24 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     return quebra() + titulo("ANEXO – REGISTRO FOTOGRÁFICO") + P(texto, { after: 240 }) +
       `<w:tbl><w:tblPr><w:tblW w:w="9070" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="4535"/><w:gridCol w:w="4535"/></w:tblGrid>${linhas}</w:tbl>`;
   }
+  /* Parte pessoal: troca o cabeçalho e o rodapé da Prefeitura pela marca do engenheiro */
+  async function timbrePessoalDocx(zip) {
+    const mh = await marcaPessoal();
+    if (mh) zip.file("word/media/marca-higor.png", mh.bytes);
+    const NS = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"', T = 520000;
+    const img = mh ? `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${T}" cy="${T}"/><wp:docPr id="9101" name="Marca"/><a:graphic ${NS}><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="9101" name="marca-higor.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdMarcaH"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${T}" cy="${T}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>` : "";
+    const txt = (t, o = {}) => `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>${o.b ? "<w:b/>" : ""}<w:color w:val="${o.cor || "16324F"}"/><w:sz w:val="${o.sz || 18}"/></w:rPr><w:t xml:space="preserve">${xe(t)}</w:t></w:r>`;
+    const par = (runs, o = {}) => `<w:p><w:pPr><w:spacing w:before="0" w:after="0"/>${o.jc ? `<w:jc w:val="${o.jc}"/>` : ""}</w:pPr>${runs}</w:p>`;
+    const cab = `<w:tbl><w:tblPr><w:tblW w:w="9070" w:type="dxa"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="single" w:sz="12" w:color="E0A526"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="1000"/><w:gridCol w:w="8070"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${par(img)}</w:tc><w:tc><w:tcPr><w:tcW w:w="8070" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${par(txt(FISCAL.nome.toUpperCase(), { b: true, sz: 28 }))}${par(txt(FISCAL.cargo, { sz: 19 }))}</w:tc></w:tr></w:tbl>${par("")}`;
+    const rod = par(txt(RODAPE_PESSOAL().join("   "), { sz: 15, cor: "5A5A5A" }), { jc: "center" });
+    for (const nome of Object.keys(zip.files)) {
+      const m = nome.match(/^word\/(header|footer)\d+\.xml$/); if (!m) continue;
+      let x = await zip.file(nome).async("string");
+      x = m[1] === "header" ? x.replace(/(<w:hdr\b[^>]*>)[\s\S]*(<\/w:hdr>)/, `$1${cab}$2`) : x.replace(/(<w:ftr\b[^>]*>)[\s\S]*(<\/w:ftr>)/, `$1${rod}$2`);
+      zip.file(nome, x);
+      if (m[1] === "header") zip.file(nome.replace("word/", "word/_rels/") + ".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdMarcaH" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/marca-higor.png"/></Relationships>`);
+    }
+  }
   async function montarDocx(corpo) {
     const Z = await zipLib();
     const res = await fetch(MODELO.url); if (!res.ok) throw new Error("modelo");
@@ -1159,6 +1218,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     if (MODELO.base64) { const s = atob((await res.text()).trim()); bin = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) bin[i] = s.charCodeAt(i); }
     else bin = new Uint8Array(await res.arrayBuffer());
     const zip = await Z.loadAsync(bin), rels = [];
+    if (docPessoal()) await timbrePessoalDocx(zip);
     const body = await corpo(zip, rels);
     let doc = await zip.file("word/document.xml").async("string");
     const ini = doc.indexOf("<w:body>") + 8, fim = doc.lastIndexOf("<w:sectPr");
@@ -1200,7 +1260,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       s += secao("4. PENDÊNCIAS EM ABERTO");
       s += pend.length ? pend.map(p => item(p.texto + (p.prazo ? ` Prazo: ${dt(p.prazo)}.` : ""))).join("") : P("Não há pendências em aberto.");
       s += assinatura(dia);
-      s += await anexoFotos(fotos, zip, rels, `Fotografias obtidas em ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      s += await anexoFotos(fotos, zip, rels, `Fotografias obtidas em ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
       return s;
     };
   }
@@ -1237,7 +1297,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       if (prz.length) s += secao(`${++n}. DOCUMENTOS COM VALIDADE`) + prz.map(x => item(`${x.tipo}${x.descricao ? ` (${x.descricao})` : ""}: vence em ${dt(x.vencimento)}${diasAte(x.vencimento) < 0 ? ", vencido" : ""}.`)).join("");
       if (docs.length) s += secao(`${++n}. PROJETOS E DOCUMENTOS ARQUIVADOS`) + CATS.map(c => docs.filter(d => d.categoria === c).map(d => item(`${c}: ${d.titulo || "sem título"}${d.data ? ` (${dt(d.data)})` : ""}`)).join("")).join("");
       s += P("É o relatório.", { before: 240 }) + assinatura(dia);
-      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas nas vistorias da obra${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas nas vistorias da obra${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
       return s;
     };
   }
@@ -1269,15 +1329,32 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     } catch (e) { timbrado = { topo: null, marca: null }; }
     return timbrado;
   }
+  let marcaH = null;
+  async function marcaPessoal() {
+    if (marcaH) return marcaH;
+    try { const r = await fetch("img/marca-higor.png"); if (!r.ok) throw 0; const b = new Uint8Array(await r.arrayBuffer()); let t = ""; for (let i = 0; i < b.length; i += 32768) t += String.fromCharCode.apply(null, b.subarray(i, i + 32768)); marcaH = { url: "data:image/png;base64," + btoa(t), bytes: b }; }
+    catch (e) { marcaH = null; }
+    return marcaH;
+  }
   async function montarPdf(corpo) {
     const JsPDF = await pdfLibJs(), tb = await papelTimbrado();
     modoPdf = true; let s;
     try { s = await corpo(null, []); } finally { modoPdf = false; }
     const blocos = [...s.matchAll(/\u0001(.*?)\u0002/gs)].map(m => JSON.parse(m[1]));
     const doc = new JsPDF({ unit: "pt", format: "a4" });
-    const PW = 595.28, PH = 841.89, ML = 85, MR = 56.7, TW = PW - ML - MR, TOPO = 158, BASE = PH - 66, FS = 11.5, LH = FS * 1.3;
+    const PW = 595.28, PH = 841.89, ML = 85, MR = 56.7, TW = PW - ML - MR, TOPO = docPessoal() ? 118 : 158, BASE = PH - 66, FS = 11.5, LH = FS * 1.3;
     let y = TOPO;
+    const pessoal = docPessoal(), mh = pessoal ? await marcaPessoal() : null;
     const fundo = () => {
+      if (pessoal) {
+        if (mh) doc.addImage(mh.url, "PNG", ML, 34, 46, 46, "marcaH", "FAST");
+        doc.setTextColor(22, 50, 79); doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.text(pdfTxt(FISCAL.nome.toUpperCase()), ML + 58, 54);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.text(pdfTxt(FISCAL.cargo), ML + 58, 70);
+        doc.setDrawColor(224, 165, 38); doc.setLineWidth(1.6); doc.line(ML, 92, PW - MR, 92);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(90);
+        RODAPE_PESSOAL().forEach((l, i) => doc.text(pdfTxt(l), PW / 2, PH - 30 + i * 9, { align: "center" }));
+        doc.setTextColor(0); doc.setFont("times", "normal"); doc.setFontSize(FS); return;
+      }
       if (tb.marca) doc.addImage(tb.marca.url, "JPEG", ML + 20.85, 85 + 124.35, 411.9, 383.7, "marca", "FAST");
       if (tb.topo) { const w = 399.4, h = w * tb.topo.h / tb.topo.w; doc.addImage(tb.topo.url, "JPEG", ML + (TW - w) / 2, 22.7, w, h, "topo", "FAST"); }
       doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(60);
@@ -1325,7 +1402,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       else if (k.k === "assinatura") {
         cabe(130); escrever(k.t, { jc: "right", antes: 18, depois: 36 });
         escrever("_______________________________________________", { jc: "center", depois: 0 });
-        escrever(FISCAL.nome, { jc: "center", b: true, depois: 0 }); escrever(FISCAL.cargo, { jc: "center", depois: 0 }); escrever(FISCAL.funcao, { jc: "center", depois: 0 });
+        escrever(FISCAL.nome, { jc: "center", b: true, depois: 0 }); escrever(FISCAL.cargo, { jc: "center", depois: 0 }); escrever(k.funcao || FISCAL.funcao, { jc: "center", depois: 0 });
       }
       else if (k.k === "assinatura2") {
         cabe(140); escrever(k.t, { jc: "right", antes: 18, depois: 40 });
@@ -1382,14 +1459,16 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
         const nf = fotos.filter(f => f.data === d.data).length; if (nf) s += campo("Fotos", `${nf} no anexo`);
       });
       s += assinatura(fim);
-      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas no período${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      s += await anexoFotos(fotos, zip, rels, `Fotografias registradas no período${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
       return s;
     };
   }
   /* ---------- RDO: Relatório Diário de Obra no formato padrão ---------- */
   function assinaturaDupla(data, empresa, resp) {
-    const [y, m, d] = data.split("-"), local = `Edealina – GO, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`;
-    const lados = [[FISCAL.nome, FISCAL.cargo, "Fiscal da Obra – Prefeitura"], [resp || " ", empresa ? `Responsável técnico – ${empresa}` : "Responsável técnico da contratada", "Contratada"]];
+    const [y, m, d] = data.split("-"), local = `${LOCAL_DOC()}, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`;
+    const lados = docPessoal()
+      ? [[FISCAL.nome, FISCAL.cargo, "Responsável técnico"], [resp || (docObra && docObra.cliente) || " ", empresa ? `Responsável – ${empresa}` : "Contratante / proprietário", empresa ? "Executora" : "Contratante"]]
+      : [[FISCAL.nome, FISCAL.cargo, "Fiscal da Obra – Prefeitura"], [resp || " ", empresa ? `Responsável técnico – ${empresa}` : "Responsável técnico da contratada", "Contratada"]];
     if (modoPdf) return B({ k: "assinatura2", t: local, lados });
     const cel = l => `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/></w:tcPr>${P("________________________________", { jc: "center", after: 0, before: 600 })}${P(l[0], { jc: "center", after: 0, b: true })}${P(l[1], { jc: "center", after: 0 })}${P(l[2], { jc: "center", after: 0 })}</w:tc>`;
     return P(local, { jc: "right", before: 360, after: 120 }) +
@@ -1439,7 +1518,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       s += pend.length ? pend.map(p => item(p.texto + (p.prazo ? ` Prazo: ${dt(p.prazo)}.` : ""))).join("") : P("Não há pendências em aberto.");
       s += secao("7. REGISTRO FOTOGRÁFICO") + P(fotos.length ? `${fotos.length} fotografia(s) no anexo.` : "Sem fotografias neste dia.");
       s += assinaturaDupla(dia, o.empresa, d.responsavel);
-      if (!soCorpo) s += await anexoFotos(fotos, zip, rels, `Fotografias do dia ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      if (!soCorpo) s += await anexoFotos(fotos, zip, rels, `Fotografias do dia ${dt(dia)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
       return s;
     };
   }
@@ -1450,11 +1529,11 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
       let s = "";
       for (let i = 0; i < dias.length; i++) s += (i ? quebra() : "") + await rdo(o, dias[i], true)(zip, rels);
       const fotos = (o.fotos || []).filter(f => dias.includes(f.data)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
-      return s + await anexoFotos(fotos, zip, rels, `Fotografias dos dias ${dt(ini)} a ${dt(fim)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, Edealina – GO.`);
+      return s + await anexoFotos(fotos, zip, rels, `Fotografias dos dias ${dt(ini)} a ${dt(fim)}${coordTxt(o) ? `, nas coordenadas aproximadas ${coordTxt(o)}` : ""}, ${LOCAL_DOC()}.`);
     };
   }
   async function gerarRelatorio(tipo, formato = "docx") {
-    const o = curObra(); if (!o) return;
+    const o = curObra(); if (!o) return; docObra = o;
     const dia = state.relData || hojeISO(), pdf = formato === "pdf";
     const ini = state.perIni || primeiroDiario(o) || dia, fim = state.perFim || hojeISO();
     if ((tipo === "periodo" || tipo === "rdos") && ini > fim) { state.error = "A data inicial do período é depois da data final."; return render(); }
@@ -1498,6 +1577,592 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     </section>`;
   }
 
+  /* ---------- Orçamento: SINAPI, BDI, memória de cálculo, cronograma, PLE, memorial e Múltipla ---------- */
+  const BDI_TIPOS = {
+    "Construção e Reforma de Edifícios": { AC: [3.00, 4.00, 5.50], SG: [0.80, 0.80, 1.00], R: [0.97, 1.27, 1.27], DF: [0.59, 1.23, 1.39], L: [6.16, 7.40, 8.96] },
+    "Construção de Praças Urbanas, Rodovias, Ferrovias e recapeamento e pavimentação de vias urbanas": { AC: [3.80, 4.01, 4.67], SG: [0.32, 0.40, 0.74], R: [0.50, 0.56, 0.97], DF: [1.02, 1.11, 1.21], L: [6.64, 7.30, 8.69] },
+    "Construção de Redes de Abastecimento de Água, Coleta de Esgoto": { AC: [3.43, 4.93, 6.71], SG: [0.28, 0.49, 0.75], R: [1.00, 1.39, 1.74], DF: [0.94, 0.99, 1.17], L: [6.74, 8.04, 9.40] },
+    "Construção e Manutenção de Estações e Redes de Distribuição de Energia Elétrica": { AC: [5.29, 5.92, 7.93], SG: [0.25, 0.51, 0.56], R: [1.00, 1.48, 1.97], DF: [1.01, 1.07, 1.11], L: [8.00, 8.31, 9.51] },
+    "Obras Portuárias, Marítimas e Fluviais": { AC: [4.00, 5.52, 7.85], SG: [0.81, 1.22, 1.99], R: [1.46, 2.32, 3.16], DF: [0.94, 1.02, 1.33], L: [7.14, 8.40, 10.43] },
+    "Fornecimento de Materiais e Equipamentos (aquisição indireta - em conjunto com licitação de obras)": { AC: [1.50, 3.45, 4.49], SG: [0.30, 0.48, 0.82], R: [0.56, 0.85, 0.89], DF: [0.85, 0.85, 1.11], L: [3.50, 5.11, 6.22] }
+  };
+  const BDI_ITENS = [["AC", "Administração central"], ["SG", "Seguro e garantia"], ["R", "Risco"], ["DF", "Despesas financeiras"], ["L", "Lucro"],
+    ["CP", "Tributos: PIS e COFINS"], ["ISSbase", "Base de cálculo do ISS (% do valor)"], ["ISS", "Alíquota do ISS"], ["CPRB", "CPRB (só no desonerado)"]];
+  const FONTES_ORC = ["SINAPI", "SINAPI-I", "SICRO", "Composição", "Cotação"];
+  const NIVEL_TXT = { meta: "Meta", etapa: "Etapa", servico: "Serviço" }, RANK = { meta: 0, etapa: 1, servico: 2 };
+  const r2 = v => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+  const semAcento = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const num2 = (v, d = 2) => Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const pctBdi = v => (Number(v) * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "%";
+
+  function tipoBdiPadrao(o) {
+    const t = semAcento(o.tipoObra || o.objeto || "").toLowerCase(), k = Object.keys(BDI_TIPOS);
+    if (/paviment|recape|praca|drenag|bueir|estrada|rodov|ponte|parque/.test(t)) return k[1];
+    if (/agua|esgoto|saneam/.test(t)) return k[2];
+    if (/eletric|ilumina|energia/.test(t)) return k[3];
+    return k[0];
+  }
+  function orcNovo(o) {
+    const cx = o.caixa || {}, tipo = tipoBdiPadrao(o), m = BDI_TIPOS[tipo];
+    return {
+      dataBase: cx.dataBase || "", desonerado: cx.desonerado === "sim",
+      bdi: { tipo, AC: m.AC[1], SG: m.SG[1], R: m.R[1], DF: m.DF[1], L: m.L[1], CP: 3.65, ISSbase: 50, ISS: 3.83, CPRB: 4.5 },
+      itens: [], crono: { inicio: ym(o.dataInicio) || ym(hojeISO()), meses: 6, dist: {} },
+      proposta: areaDe(o) === "pessoal"
+        ? { proponente: String(o.cliente || "").toUpperCase(), municipio: String(o.municipio || "").toUpperCase(), responsavel: FISCAL.nome,
+          registro: (FISCAL.cargo.match(/CREA[^,]*/) || [""])[0], art: "", prefeito: o.cliente || "", cargoPrefeito: "Contratante" }
+        : { proponente: "PREFEITURA MUNICIPAL DE EDEALINA", municipio: "EDEALINA - GO", responsavel: FISCAL.nome,
+          registro: (FISCAL.cargo.match(/CREA[^,]*/) || [""])[0], art: "", prefeito: "", cargoPrefeito: "PREFEITO(A) MUNICIPAL" },
+      memorial: {}
+    };
+  }
+  const orcDe = o => { const n = orcNovo(o), c = o.orcamento || {}; return { ...n, ...c, bdi: { ...n.bdi, ...(c.bdi || {}) }, crono: { ...n.crono, ...(c.crono || {}) }, proposta: { ...n.proposta, ...(c.proposta || {}) }, memorial: { ...(c.memorial || {}) }, itens: c.itens || [] }; };
+  const orcItens = o => (o.orcamento && o.orcamento.itens) || [];
+  async function salvarOrc(o, mud) {
+    const novo = { ...orcDe(o), ...mud };
+    await patch(o, { orcamento: novo });
+    return novo;
+  }
+
+  /* BDI pela fórmula do Acórdão TCU 2622/2013, igual à aba BDI da Múltipla */
+  function bdiCalc(orc) {
+    const b = orc.bdi || {}, f = k => (Number(b[k]) || 0) / 100;
+    const I = f("CP") + f("ISS") * f("ISSbase") + (orc.desonerado ? f("CPRB") : 0);
+    if (I >= 1) return 0;
+    return Math.round((((1 + f("AC") + f("SG") + f("R")) * (1 + f("DF")) * (1 + f("L"))) / (1 - I) - 1) * 10000) / 10000;
+  }
+
+  /* Memória de cálculo: aceita 3*8*4, 2,5 x 3, (4+2)*1,5 e potência com ^. Sem eval. */
+  function calcExpr(txt) {
+    let s = String(txt || "").replace(/\s+/g, "").replace(/[xX×]/g, "*").replace(/÷/g, "/");
+    if (!s) return null;
+    if (s.includes(",")) s = s.replace(/\./g, "").replace(/,/g, ".");
+    if (!/^[0-9.+\-*/()^]+$/.test(s)) return null;
+    let i = 0;
+    const num = () => { const m = s.slice(i).match(/^\d*\.?\d+/); if (!m) throw 0; i += m[0].length; return parseFloat(m[0]); };
+    const pot = b => { if (s[i] === "^") { i++; return Math.pow(b, fator()); } return b; };
+    const fator = () => {
+      if (s[i] === "-") { i++; return -fator(); }
+      if (s[i] === "+") { i++; return fator(); }
+      if (s[i] === "(") { i++; const v = soma(); if (s[i] !== ")") throw 0; i++; return pot(v); }
+      return pot(num());
+    };
+    const termo = () => { let v = fator(); while (s[i] === "*" || s[i] === "/") { const op = s[i++], w = fator(); v = op === "*" ? v * w : v / w; } return v; };
+    const soma = () => { let v = termo(); while (s[i] === "+" || s[i] === "-") { const op = s[i++], w = termo(); v = op === "+" ? v + w : v - w; } return v; };
+    try { const v = soma(); return i === s.length && isFinite(v) ? v : null; } catch (e) { return null; }
+  }
+  const qtdDe = x => { const m = String(x.memoria || "").trim(); if (m) { const v = calcExpr(m); if (v !== null) return r2(v); } return isNum(x.qtd) ? r2(x.qtd) : 0; };
+
+  /* Numeração (1, 1.1, 1.1.1), preço com BDI arredondado como na Múltipla e subtotais por meta e etapa */
+  function orcCalc(o) {
+    const orc = orcDe(o), bdi = bdiCalc(orc), linhas = [], porItem = new Map();
+    let im = 0, ie = 0, is = 0, meta = null, etapa = null;
+    for (const x of orc.itens) {
+      let num;
+      if (x.nivel === "meta") { im++; ie = 0; is = 0; meta = x; etapa = null; num = `${im}`; }
+      else if (x.nivel === "etapa") { ie++; is = 0; etapa = x; num = `${Math.max(im, 1)}.${ie}`; }
+      else { is++; num = etapa ? `${Math.max(im, 1)}.${ie}.${is}` : `${Math.max(im, 1)}.${is}`; }
+      const l = { x, num, meta, etapa, total: 0, totalSem: 0 };
+      if (x.nivel === "servico") {
+        l.grupo = etapa || meta; l.qtd = qtdDe(x); l.custo = r2(x.custo); l.preco = r2(l.custo * (1 + bdi));
+        l.total = r2(l.qtd * l.preco); l.totalSem = r2(l.qtd * l.custo);
+      }
+      linhas.push(l); porItem.set(x, l);
+    }
+    const grupos = [];
+    for (const l of linhas) if (l.x.nivel === "servico") {
+      for (const g of [l.meta, l.etapa]) if (g) { const gl = porItem.get(g); gl.total = r2(gl.total + l.total); gl.totalSem = r2(gl.totalSem + l.totalSem); }
+      if (l.grupo && !grupos.includes(porItem.get(l.grupo))) grupos.push(porItem.get(l.grupo));
+    }
+    const servs = linhas.filter(l => l.x.nivel === "servico");
+    const sem = r2(servs.reduce((s, l) => s + l.totalSem, 0)), com = r2(servs.reduce((s, l) => s + l.total, 0));
+    return { orc, bdi, linhas, servs, grupos, sem, com };
+  }
+  const orcMes = orc => orc.dataBase || (sinapi.indice && sinapi.indice.bases[0] ? sinapi.indice.bases[0].mes : "");
+  const orcTotais = o => { const c = orcCalc(o); return { comBdi: c.com, semBdi: c.sem }; };
+  function orcAvisos(c) {
+    const a = [];
+    if (c.linhas.length && c.linhas[0].x.nivel !== "meta") a.push("O primeiro item precisa ser uma Meta (a Múltipla exige).");
+    c.servs.forEach(l => {
+      if (!l.x.codigo) a.push(`Item ${l.num}: serviço sem código.`);
+      if (!l.qtd) a.push(`Item ${l.num}: quantidade zerada.`);
+      if (String(l.x.memoria || "").trim() && calcExpr(l.x.memoria) === null) a.push(`Item ${l.num}: não entendi a memória de cálculo "${l.x.memoria}".`);
+      if (!l.custo) a.push(`Item ${l.num}: sem custo unitário.`);
+    });
+    const tipo = BDI_TIPOS[c.orc.bdi.tipo];
+    if (tipo) ["AC", "SG", "R", "DF", "L"].forEach(k => { const v = Number(c.orc.bdi[k]); if (v < tipo[k][0] || v > tipo[k][2]) a.push(`BDI: ${k} de ${num2(v)}% está fora da faixa do TCU para este tipo de obra (${num2(tipo[k][0])}% a ${num2(tipo[k][2])}%).`); });
+    return a;
+  }
+
+  /* Base SINAPI (arquivos em dados/sinapi, atualizados todo mês pelo robô do GitHub) */
+  const SINAPI_DIR = "dados/sinapi/";
+  const sinapi = { indice: null, bases: {}, erro: "" };
+  async function sinapiIndice() {
+    if (!sinapi.indice) { const r = await fetch(SINAPI_DIR + "indice.json", { cache: "no-cache" }); if (!r.ok) throw new Error("sinapi"); sinapi.indice = await r.json(); }
+    return sinapi.indice;
+  }
+  async function sinapiBase(mes) {
+    const ind = await sinapiIndice(), b = ind.bases.find(x => x.mes === mes) || ind.bases[0];
+    if (!sinapi.bases[b.mes]) {
+      const r = await fetch(SINAPI_DIR + b.arquivo); if (!r.ok) throw new Error("sinapi");
+      const j = await r.json();
+      j.chave = it => (it[0] ? "SINAPI-I" : "SINAPI") + " " + it[1];
+      j.mapa = new Map(j.itens.map(it => [j.chave(it), it]));
+      j.norm = j.itens.map(it => semAcento(it[2]).toLowerCase());
+      sinapi.bases[b.mes] = j;
+    }
+    return sinapi.bases[b.mes];
+  }
+  function sinapiBuscar(base, q, fonte) {
+    q = semAcento(q).toLowerCase().trim(); if (!q) return [];
+    const ok = it => fonte === "todas" || (fonte === "SINAPI" ? !it[0] : !!it[0]);
+    if (/^\d+$/.test(q)) return base.itens.filter(it => ok(it) && String(it[1]).startsWith(q)).sort((a, b) => String(a[1]).length - String(b[1]).length).slice(0, 60);
+    const tk = q.split(/\s+/), res = [];
+    for (let i = 0; i < base.itens.length && res.length < 60; i++) if (ok(base.itens[i]) && tk.every(t => base.norm[i].includes(t))) res.push(base.itens[i]);
+    return res;
+  }
+  const precoBase = (it, orc) => (orc.desonerado ? it[4] : it[5]) ?? it[5] ?? it[4] ?? 0;
+  async function orcBaseAtual(o) { const orc = orcDe(o), ind = await sinapiIndice(); return sinapiBase(orc.dataBase && ind.bases.some(b => b.mes === orc.dataBase) ? orc.dataBase : ind.bases[0].mes); }
+
+  function orcResultados() {
+    const b = state.orcBusca || {}, el = document.getElementById("orc-res"); if (!el) return;
+    if (b.carregando) { el.innerHTML = `<div class="muted small">Carregando a base SINAPI…</div>`; return; }
+    if (b.erro) { el.innerHTML = `<div class="msg err">${esc(b.erro)}</div>`; return; }
+    if (!b.q || !b.q.trim()) { el.innerHTML = ""; return; }
+    if (!b.res.length) { el.innerHTML = `<div class="muted small">Nada encontrado. Tente outra palavra ou o código.</div>`; return; }
+    const orc = orcDe(curObra());
+    el.innerHTML = `<ul class="sinapi-res">${b.res.map(it => { const p = precoBase(it, orc), ch = (it[0] ? "SINAPI-I" : "SINAPI") + " " + it[1]; return `<li>
+      <span class="cod mono">${it[0] ? "SINAPI-I" : "SINAPI"} ${esc(it[1])}</span><span class="desc">${esc(it[2])}</span>
+      <span class="un mono">${esc(it[3])}</span><span class="pr mono">${p ? brl(p) : "sem preço"}</span>
+      <button class="sm" data-orc-add="${esc(ch)}">Adicionar</button></li>`; }).join("")}</ul>`;
+  }
+  let orcBuscaTimer = null;
+  function orcBuscarAgora() {
+    const b = state.orcBusca; clearTimeout(orcBuscaTimer);
+    orcBuscaTimer = setTimeout(async () => {
+      try { b.carregando = !Object.keys(sinapi.bases).length; orcResultados(); const base = await orcBaseAtual(curObra()); b.carregando = false; b.erro = ""; b.res = sinapiBuscar(base, b.q, b.fonte); }
+      catch (e) { b.carregando = false; b.erro = "Não consegui abrir a base SINAPI. Verifique a internet e tente de novo."; }
+      orcResultados();
+    }, 220);
+  }
+
+  function posInsercao(itens, alvoId) {
+    const i = itens.findIndex(x => x.id === alvoId); if (i < 0) return itens.length;
+    let j = i + 1; while (j < itens.length && RANK[itens[j].nivel] > RANK[itens[i].nivel]) j++;
+    return j;
+  }
+  async function orcInserir(o, item) {
+    const orc = orcDe(o), itens = [...orc.itens];
+    if (item.nivel !== "meta" && !itens.some(x => x.nivel === "meta")) itens.unshift({ id: uid(), nivel: "meta", descricao: String(o.nome || "OBRA").toUpperCase() });
+    let alvo = state.orcAlvo && itens.some(x => x.id === state.orcAlvo) ? state.orcAlvo : null;
+    if (item.nivel === "meta") alvo = null;
+    else if (item.nivel === "etapa" && alvo) { const a = itens.find(x => x.id === alvo); if (a.nivel === "etapa") alvo = [...itens.slice(0, itens.indexOf(a))].reverse().find(x => x.nivel === "meta")?.id || null; }
+    const pos = alvo ? posInsercao(itens, alvo) : itens.length;
+    itens.splice(pos, 0, item);
+    if (item.nivel !== "servico") state.orcAlvo = item.id;
+    await salvarOrc(o, { itens });
+  }
+
+  /* Distribuição do cronograma: % de cada grupo (etapa, ou meta sem etapas) por mês */
+  function cronoOrc(c) {
+    const cr = c.orc.crono, n = Math.max(1, Math.min(60, Number(cr.meses) || 1)), meses = [];
+    for (let i = 0; i < n; i++) meses.push(addMes(cr.inicio || ym(hojeISO()), i));
+    const linhas = c.grupos.map(g => {
+      const d = (cr.dist || {})[g.x.id] || [], p = meses.map((_, i) => Number(d[i]) || 0);
+      return { g, p, soma: Math.round(p.reduce((s, v) => s + v, 0) * 100) / 100, v: p.map(x => r2(g.total * x / 100)) };
+    });
+    const tot = meses.map((_, i) => r2(linhas.reduce((s, l) => s + l.v[i], 0)));
+    let ac = 0; const acum = tot.map(v => (ac = r2(ac + v)));
+    return { meses, linhas, tot, acum };
+  }
+
+  const orcFld = (id, campo, valor, tipo = "text", extra = "") => `<input id="${id}" type="${tipo}" ${tipo === "number" ? 'step="any"' : ""} data-orc-campo="${esc(campo)}" value="${esc(valor ?? "")}" ${extra}>`;
+  function tabOrcamento(o) {
+    const c = orcCalc(o), orc = c.orc, w = canWrite(), avisos = orcAvisos(c);
+    const ind = sinapi.indice;
+    if (!ind && !sinapi.erro && !sinapi.pedindo) { sinapi.pedindo = true; sinapiIndice().then(() => { sinapi.pedindo = false; render(); }).catch(() => { sinapi.pedindo = false; sinapi.erro = "Não consegui abrir a lista de bases SINAPI."; render(); }); }
+    const bases = ind ? ind.bases : [];
+    const baseTxt = orc.dataBase ? mesTxt(orc.dataBase) : bases[0] ? mesTxt(bases[0].mes) : "—";
+    const b = state.orcBusca || (state.orcBusca = { q: "", fonte: "todas", res: [] });
+    const tipoB = BDI_TIPOS[orc.bdi.tipo];
+    const alvo = orc.itens.find(x => x.id === state.orcAlvo);
+    const cr = cronoOrc(c);
+    const ro = !w ? "disabled" : "";
+    return `
+      <div class="summary">
+        <div class="tile"><div class="eyebrow">Custo direto (sem BDI)</div><div class="v num sm">${brl(c.sem)}</div><div class="sub">${c.servs.length} serviço(s)</div></div>
+        <div class="tile"><div class="eyebrow">BDI</div><div class="v num">${pctBdi(c.bdi)}</div><div class="sub">${esc(orc.desonerado ? "Desonerado" : "Não desonerado")}</div></div>
+        <div class="tile"><div class="eyebrow">Total com BDI</div><div class="v num sm">${brl(c.com)}</div><div class="sub">SINAPI-GO ${esc(baseTxt)}</div></div>
+      </div>
+      ${avisos.length ? `<div class="msg warn"><b>Conferir antes de exportar:</b><ul style="margin:6px 0 0 18px;padding:0">${avisos.slice(0, 8).map(t => `<li>${esc(t)}</li>`).join("")}${avisos.length > 8 ? `<li>e mais ${avisos.length - 8}…</li>` : ""}</ul></div>` : ""}
+
+      <section class="blk"><header><h3>Planilha orçamentária</h3>${w ? `<div class="btns"><button data-act="orc-meta">+ Meta</button><button data-act="orc-etapa">+ Etapa</button><button data-act="orc-proprio">+ Item próprio</button></div>` : ""}</header>
+        ${w ? `<div class="orc-busca">
+          <div class="filters" style="margin:0 0 8px">${["todas", "SINAPI", "SINAPI-I"].map(f => `<button class="chip" data-orc-fonte="${f}" aria-pressed="${b.fonte === f}">${f === "todas" ? "Composições e insumos" : f === "SINAPI" ? "Só composições" : "Só insumos"}</button>`).join("")}
+            <input id="orc-q" type="search" placeholder="Buscar no SINAPI-GO ${esc(baseTxt)}: código ou descrição (ex.: 88316, servente, concreto fck 25)" value="${esc(b.q)}" autocomplete="off"></div>
+          <div class="small muted" style="margin-bottom:6px">${alvo ? `Os itens entram em <b>${esc(alvo.descricao || NIVEL_TXT[alvo.nivel])}</b>. <button class="ghost sm" data-act="orc-alvo-fim">Pôr no fim da planilha</button>` : "Os itens entram no fim da planilha. Clique em ＋ numa meta ou etapa para pôr os itens dentro dela."}</div>
+          <div id="orc-res"></div></div>` : ""}
+        ${c.linhas.length ? `<div class="tbl orc-tbl"><table><thead><tr><th>Item</th><th>Código</th><th>Descrição</th><th>Und</th><th>Memória de cálculo</th><th class="r">Quant.</th><th class="r">Custo unit.</th><th class="r">Preço c/ BDI</th><th class="r">Total</th>${w ? "<th></th>" : ""}</tr></thead><tbody>
+          ${c.linhas.map((l, i) => { const x = l.x, sv = x.nivel === "servico", id = esc(x.id);
+            if (!sv) return `<tr class="orc-${x.nivel}${state.orcAlvo === x.id ? " orc-alvo" : ""}"><td class="mono">${l.num}</td><td class="small">${NIVEL_TXT[x.nivel]}</td>
+              <td colspan="6">${w ? `<input id="orc-d-${id}" class="orc-desc" data-orc-item="${id}" data-k="descricao" value="${esc(x.descricao)}" aria-label="Descrição">` : `<b>${esc(x.descricao)}</b>`}</td>
+              <td class="mono r"><b>${brl(l.total)}</b></td>${w ? `<td class="orc-acts"><button class="sm" title="Pôr os próximos itens aqui" data-orc-alvo="${id}">＋</button>${acoesItem(x, i, c.linhas.length)}</td>` : ""}</tr>`;
+            const memOk = !String(x.memoria || "").trim() || calcExpr(x.memoria) !== null, proprio = !/^SINAPI/.test(x.fonte || "");
+            return `<tr><td class="mono">${l.num}</td><td class="small mono orc-cod">${esc(x.fonte || "")}<br>${esc(x.codigo || "")}</td>
+              <td class="small">${w && proprio ? `<textarea id="orc-d-${id}" rows="2" data-orc-item="${id}" data-k="descricao">${esc(x.descricao)}</textarea>` : esc(x.descricao)}</td>
+              <td class="mono">${w && proprio ? `<input id="orc-u-${id}" class="orc-un" data-orc-item="${id}" data-k="unidade" value="${esc(x.unidade)}">` : esc(x.unidade)}</td>
+              <td>${w ? `<input id="orc-m-${id}" class="orc-mem${memOk ? "" : " invalido"}" data-orc-item="${id}" data-k="memoria" value="${esc(x.memoria)}" placeholder="ex.: 3*8*4">` : `<span class="mono small">${esc(x.memoria || "")}</span>`}</td>
+              <td class="r">${w && !String(x.memoria || "").trim() ? `<input id="orc-q-${id}" class="orc-num" type="number" step="any" data-orc-item="${id}" data-k="qtd" value="${esc(x.qtd)}">` : `<span class="mono">${num2(l.qtd)}</span>`}</td>
+              <td class="r">${w && proprio ? `<input id="orc-c-${id}" class="orc-num" type="number" step="any" data-orc-item="${id}" data-k="custo" value="${esc(x.custo)}">` : `<span class="mono">${num2(l.custo)}</span>`}</td>
+              <td class="mono r">${num2(l.preco)}</td><td class="mono r">${num2(l.total)}</td>${w ? `<td class="orc-acts">${acoesItem(x, i, c.linhas.length)}</td>` : ""}</tr>`; }).join("")}
+          </tbody><tfoot><tr><td colspan="8">Total sem BDI</td><td class="mono r">${brl(c.sem)}</td>${w ? "<td></td>" : ""}</tr>
+            <tr><td colspan="8">Total com BDI (${pctBdi(c.bdi)})</td><td class="mono r"><b>${brl(c.com)}</b></td>${w ? "<td></td>" : ""}</tr></tfoot></table></div>
+          <p class="small muted" style="margin:10px 0 0">Na memória de cálculo use * para multiplicar e vírgula para decimais (ex.: 2,5*3*4). A quantidade sai dela. O preço com BDI é arredondado em 2 casas, como na Múltipla.</p>`
+          : `<div class="muted">Planilha vazia. Comece com <b>+ Meta</b> (ex.: "CONSTRUÇÃO DA PRAÇA"), crie as etapas e busque os serviços no SINAPI. Itens fora do SINAPI entram por <b>+ Item próprio</b> (cotação ou composição própria).</div>`}
+      </section>
+
+      <section class="blk"><header><h3>Dados da proposta</h3></header><div class="grid">
+        <label class="f">Data-base (SINAPI-GO)<select id="orc-database" data-orc-campo="dataBase" ${ro}>${bases.map(x => `<option value="${esc(x.mes)}" ${(orc.dataBase || bases[0]?.mes) === x.mes ? "selected" : ""}>${mesTxt(x.mes)}</option>`).join("") || `<option>${esc(baseTxt)}</option>`}</select></label>
+        <label class="f">Desoneração<select id="orc-deson" data-orc-campo="desonerado" ${ro}><option value="nao" ${!orc.desonerado ? "selected" : ""}>Não desonerado</option><option value="sim" ${orc.desonerado ? "selected" : ""}>Desonerado</option></select></label>
+        <label class="f">Proponente / tomador${orcFld("orc-p-proponente", "proposta.proponente", orc.proposta.proponente, "text", ro)}</label>
+        <label class="f">Município - UF${orcFld("orc-p-municipio", "proposta.municipio", orc.proposta.municipio, "text", ro)}</label>
+        <label class="f">Responsável técnico${orcFld("orc-p-resp", "proposta.responsavel", orc.proposta.responsavel, "text", ro)}</label>
+        <label class="f">CREA / CAU${orcFld("orc-p-reg", "proposta.registro", orc.proposta.registro, "text", ro)}</label>
+        <label class="f">ART / RRT${orcFld("orc-p-art", "proposta.art", orc.proposta.art, "text", ro)}</label>
+        <label class="f">${areaDe(o) === "pessoal" ? "Quem assina pelo contratante" : "Prefeito(a)"}${orcFld("orc-p-pref", "proposta.prefeito", orc.proposta.prefeito, "text", ro)}</label>
+        <label class="f">${areaDe(o) === "pessoal" ? "Qualificação" : "Cargo"}${orcFld("orc-p-cargo", "proposta.cargoPrefeito", orc.proposta.cargoPrefeito, "text", ro)}</label>
+      </div>
+      ${w && c.servs.some(l => /^SINAPI/.test(l.x.fonte)) ? `<div class="btns" style="margin-top:12px"><button data-act="orc-reprecificar" ${state.busy ? "disabled" : ""}>${state.busy === "orc-rep" ? "Atualizando…" : `Atualizar preços SINAPI para ${esc(baseTxt)} ${orc.desonerado ? "desonerado" : "não desonerado"}`}</button></div>` : ""}
+      ${ind && ind.bases[0] ? `<p class="small muted" style="margin:8px 0 0">Base mais nova no site: SINAPI-GO ${mesTxt(ind.bases[0].mes)}${ind.bases[0].atualizadoEm ? `, carregada em ${dt(ind.bases[0].atualizadoEm)}` : ""}. A base é atualizada todo mês, e cada orçamento fica na data-base escolhida até você mudar.</p>` : ""}
+      </section>
+
+      <section class="blk"><header><h3>BDI</h3><span class="mono"><b>${pctBdi(c.bdi)}</b></span></header>
+        <label class="f wide">Tipo de obra (Acórdão TCU 2622/2013)<select id="orc-bdi-tipo" data-orc-campo="bdi.tipo" ${ro}>${Object.keys(BDI_TIPOS).map(t => `<option ${orc.bdi.tipo === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>
+        <div class="grid" style="margin-top:12px">${BDI_ITENS.filter(([k]) => k !== "CPRB" || orc.desonerado).map(([k, t]) => `<label class="f">${t} (%)${orcFld("orc-bdi-" + k, "bdi." + k, orc.bdi[k], "number", ro)}
+          ${tipoB && tipoB[k] ? `<span class="small muted" style="font-weight:400">TCU: ${num2(tipoB[k][0])}% a ${num2(tipoB[k][2])}%, médio ${num2(tipoB[k][1])}%</span>` : ""}</label>`).join("")}</div>
+        ${w && tipoB ? `<div class="btns" style="margin-top:10px"><button class="sm" data-act="orc-bdi-medio">Usar os valores médios do TCU</button></div>` : ""}
+        <p class="small muted" style="margin:8px 0 0">BDI = ((1+AC+SG+R) × (1+DF) × (1+L)) ÷ (1 − CP − ISS × base${orc.desonerado ? " − CPRB" : ""}) − 1</p>
+      </section>
+
+      ${c.grupos.length ? `<section class="blk"><header><h3>Cronograma físico-financeiro</h3>${w ? `<div class="btns"><button class="sm" data-act="orc-crono-igual">Distribuir igual</button>${o.dataInicio && prazoAtual(o) ? `<button class="sm" data-act="orc-crono-obra">Usar início e prazo da obra</button>` : ""}</div>` : ""}</header>
+        <div class="grid" style="margin-bottom:12px"><label class="f">Primeiro mês${orcFld("orc-cr-ini", "crono.inicio", orc.crono.inicio, "month", ro)}</label><label class="f">Duração (meses)${orcFld("orc-cr-n", "crono.meses", orc.crono.meses, "number", ro + ' min="1" max="60"')}</label></div>
+        <div class="tbl"><table class="crono-orc"><thead><tr><th>Etapa</th><th class="r">Valor</th>${cr.meses.map(m => `<th class="r">${mesTxt(m)}</th>`).join("")}<th class="r">Soma</th></tr></thead><tbody>
+          ${cr.linhas.map(l => `<tr><td><span class="mono">${l.g.num}</span> ${esc(l.g.x.descricao)}</td><td class="mono r">${brl(l.g.total)}</td>
+            ${l.p.map((p, i) => `<td class="r">${w ? `<span class="pct-cel"><input type="number" min="0" max="100" step="any" id="orc-cr-${esc(l.g.x.id)}-${i}" data-orc-crono="${esc(l.g.x.id)}" data-i="${i}" value="${p || ""}" aria-label="% em ${mesTxt(cr.meses[i])}"><span>%</span></span>` : `${num2(p)}%`}<div class="small muted mono">${l.v[i] ? num2(l.v[i]) : ""}</div></td>`).join("")}
+            <td class="mono r ${Math.abs(l.soma - 100) > 0.01 ? "prazo-late" : ""}">${num2(l.soma)}%</td></tr>`).join("")}
+        </tbody><tfoot><tr><td>Total no mês</td><td class="mono r">${brl(c.com)}</td>${cr.tot.map(v => `<td class="mono r">${num2(v)}</td>`).join("")}<td></td></tr>
+          <tr><td>Acumulado</td><td></td>${cr.acum.map(v => `<td class="mono r">${num2(v)}<div class="small muted">${pctTxt(pct(v, c.com))}</div></td>`).join("")}<td></td></tr></tfoot></table></div>
+        <p class="small muted" style="margin:10px 0 0">Ponha o % de cada etapa em cada mês. Cada linha precisa somar 100%.</p>
+      </section>` : ""}
+
+      ${c.grupos.length ? `<section class="blk"><header><h3>Memorial descritivo</h3>${w && state.sample ? `<button data-act="orc-memorial-claude" ${state.busy ? "disabled" : ""}>${state.busy === "orc-mem" ? "Escrevendo…" : "Escrever com Claude"}</button>` : ""}</header>
+        <p class="small muted" style="margin:0 0 10px">Texto de cada etapa no memorial. Se ficar em branco, o memorial lista os serviços da etapa com as quantidades.</p>
+        <label class="f wide">Considerações gerais<textarea id="orc-mem-geral" rows="3" data-orc-memorial="_geral" ${ro} placeholder="${esc(memorialGeralPadrao(o))}">${esc(orc.memorial._geral || "")}</textarea></label>
+        ${c.grupos.map(g => `<label class="f wide" style="margin-top:10px">${g.num} ${esc(g.x.descricao)}<textarea id="orc-mem-${esc(g.x.id)}" rows="3" data-orc-memorial="${esc(g.x.id)}" ${ro} placeholder="${esc(memorialAuto(c, g))}">${esc(orc.memorial[g.x.id] || "")}</textarea></label>`).join("")}
+      </section>` : ""}
+
+      <section class="blk"><header><h3>Documentos da proposta</h3></header>
+        <p class="small muted" style="margin:0 0 10px">Saem no papel timbrado, com os mesmos cálculos e arredondamentos da Múltipla, prontos para imprimir e assinar.</p>
+        <div class="rel-grid">
+          ${[["orc", "Planilha orçamentária"], ["bdi", "Composição do BDI"], ["memoria", "Memória de cálculo"], ["crono", "Cronograma físico-financeiro"], ["ple", "PLE – Planilha de Levantamento de Eventos"], ["memorial", "Memorial descritivo"]].map(([k, t]) =>
+            `<div><b>${t}</b><div class="btns">${botaoOrcDoc(k, "pdf", "PDF", true)}${botaoOrcDoc(k, "docx", "Word")}</div></div>`).join("")}
+          <div><b>Proposta completa (todos acima)</b><div class="btns">${botaoOrcDoc("tudo", "pdf", "PDF", true)}${botaoOrcDoc("tudo", "docx", "Word")}</div></div>
+        </div>
+        <div class="btns" style="margin-top:14px">
+          <button data-act="orc-excel" ${state.busy || !c.servs.length ? "disabled" : ""}>${state.busy === "orc-xlsx" ? "Gerando…" : "Planilha em Excel"}</button>
+          <button class="primary" data-act="orc-multipla" ${state.busy || !c.servs.length ? "disabled" : ""}>${state.busy === "orc-pm" ? "Gerando…" : "Arquivo para a Múltipla da Caixa"}</button>
+          ${w && c.servs.length ? `<button data-act="orc-usar" ${state.busy ? "disabled" : ""}>Usar no controle da obra</button>` : ""}
+        </div>
+        <details class="small muted" style="margin-top:10px"><summary>Como levar para a Múltipla</summary>
+          <ol style="margin:6px 0 0 18px;padding:0"><li>Baixe o <b>Arquivo para a Múltipla da Caixa</b>.</li><li>Abra a Múltipla v3.16 em branco no Excel, com a Referência ${esc(baseTxt)} aberta junto.</li>
+          <li>No MENU, use <b>Importar de outra Planilha Múltipla</b> e escolha o arquivo baixado. A própria macro da Caixa cria as linhas e preenche DADOS, BDI, ORÇAMENTO e CÁLCULO.</li><li>Confira o total: deve dar ${brl(c.com)}.</li></ol></details>
+        ${w && c.servs.length ? `<p class="small muted" style="margin:8px 0 0"><b>Usar no controle da obra</b> passa as etapas com valor para a aba Serviços, o cronograma para a aba Cronograma e o total, o BDI e a data-base para os dados Caixa da obra.</p>` : ""}
+      </section>`;
+  }
+  const acoesItem = (x, i, n) => `<button class="sm ghost" title="Subir" data-orc-mover="${esc(x.id)}" data-dir="-1" ${i === 0 ? "disabled" : ""}>↑</button><button class="sm ghost" title="Descer" data-orc-mover="${esc(x.id)}" data-dir="1" ${i === n - 1 ? "disabled" : ""}>↓</button>${state.confirm === "orc:" + x.id ? `<button class="sm danger" data-orc-del="${esc(x.id)}">Excluir${x.nivel !== "servico" ? " com itens" : ""}</button><button class="sm" data-no="1">Não</button>` : `<button class="sm ghost" title="Excluir" data-ask="orc:${esc(x.id)}">✕</button>`}`;
+  const botaoOrcDoc = (tipo, formato, txt, primario) => `<button ${primario ? 'class="primary" ' : ""}data-orc-doc="${tipo}" data-formato="${formato}" ${state.busy ? "disabled" : ""}>${state.busy === `orcdoc-${tipo}-${formato}` ? "Gerando…" : txt}</button>`;
+
+  /* ----- Textos e documentos ----- */
+  const memorialGeralPadrao = o => `Este memorial descreve os serviços para ${o.objeto || o.nome}${o.endereco ? `, em ${o.endereco}` : ""}. Os serviços seguirão os projetos, as normas da ABNT e as especificações das composições SINAPI indicadas na planilha orçamentária. Materiais e mão de obra conforme a planilha; qualquer alteração depende de aprovação da fiscalização.`;
+  const memorialAuto = (c, g) => { const s = c.servs.filter(l => l.grupo === g.x); return s.length ? `Compreende: ${s.map(l => `${l.x.descricao.toLowerCase()} (${num2(l.qtd)} ${l.x.unidade})`).join("; ")}.` : ""; };
+  function cabecalhoOrc(o, c, nome) {
+    const orc = c.orc;
+    return titulo(nome) + P("", { after: 120 }) + campo("Obra", o.nome) + campo("Objeto", o.objeto) + campo("Local", [o.endereco, orc.proposta.municipio].filter(Boolean).join(" – ")) +
+      campo("Proponente", orc.proposta.proponente) + campo("Referência", `SINAPI-GO ${mesTxt(orcMes(orc))} – ${orc.desonerado ? "desonerado" : "não desonerado"}`) +
+      campo("BDI", pctBdi(c.bdi)) + P("", { after: 120 });
+  }
+  function assinaturaOrc(c) {
+    const p = c.orc.proposta, [y, m, d] = hojeISO().split("-"), local = `${(p.municipio || LOCAL_DOC()).replace(/\s-\s/, " – ")}, ${Number(d)} de ${MESES_EXT[Number(m) - 1]} de ${y}.`;
+    const lados = [[p.responsavel || " ", [p.registro, p.art ? "ART " + p.art : ""].filter(Boolean).join(" – ") || " ", "Responsável técnico"], [p.prefeito || " ", p.cargoPrefeito || " ", p.proponente || " "]];
+    if (modoPdf) return B({ k: "assinatura2", t: local, lados });
+    const cel = l => `<w:tc><w:tcPr><w:tcW w:w="4535" w:type="dxa"/></w:tcPr>${P("________________________________", { jc: "center", after: 0, before: 600 })}${P(l[0], { jc: "center", after: 0, b: true })}${P(l[1], { jc: "center", after: 0 })}${P(l[2], { jc: "center", after: 0 })}</w:tc>`;
+    return P(local, { jc: "right", before: 360, after: 120 }) +
+      `<w:tbl><w:tblPr><w:tblW w:w="9070" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="4535"/><w:gridCol w:w="4535"/></w:tblGrid><w:tr><w:trPr><w:cantSplit/></w:trPr>${lados.map(cel).join("")}</w:tr></w:tbl>`;
+  }
+  const docsOrc = {
+    orc: (o, c) => cabecalhoOrc(o, c, "PLANILHA ORÇAMENTÁRIA") +
+      tabela(["Item", "Código", "Descrição", "Und", ">Quant.", ">Custo unit.", ">Preço c/ BDI", ">Total (R$)"],
+        [...c.linhas.map(l => l.x.nivel === "servico"
+          ? [l.num, `${l.x.fonte} ${l.x.codigo}`, l.x.descricao, l.x.unidade, num2(l.qtd), num2(l.custo), num2(l.preco), num2(l.total)]
+          : [{ t: l.num, b: true }, { t: NIVEL_TXT[l.x.nivel], b: true }, { t: l.x.descricao, b: true }, "", "", "", "", { t: num2(l.total), b: true }]),
+        [{ t: "", b: true }, "", { t: "TOTAL SEM BDI", b: true }, "", "", "", "", { t: num2(c.sem), b: true }],
+        [{ t: "", b: true }, "", { t: `TOTAL COM BDI (${pctBdi(c.bdi)})`, b: true }, "", "", "", "", { t: num2(c.com), b: true }]],
+        [620, 1050, 3050, 550, 800, 950, 1000, 1050]) + assinaturaOrc(c),
+    bdi: (o, c) => { const b = c.orc.bdi, t = BDI_TIPOS[b.tipo];
+      return cabecalhoOrc(o, c, "COMPOSIÇÃO DO BDI") + campo("Tipo de obra", b.tipo) +
+        tabela(["Item", "Sigla", ">% adotado", ">Faixa TCU (1º a 3º quartil)"],
+          [...BDI_ITENS.filter(([k]) => k !== "CPRB" || c.orc.desonerado).map(([k, n]) => [n, k, num2(b[k]) + "%", t && t[k] ? `${num2(t[k][0])}% a ${num2(t[k][2])}%` : "—"]),
+            [{ t: "BDI adotado", b: true }, "", { t: pctBdi(c.bdi), b: true }, ""]], [4170, 900, 1600, 2400]) +
+        P(`Fórmula (Acórdão TCU nº 2622/2013): BDI = ((1 + AC + SG + R) × (1 + DF) × (1 + L)) ÷ (1 - CP - ISS${c.orc.desonerado ? " - CPRB" : ""}) - 1, com ISS = ${num2(b.ISS)}% sobre base de ${num2(b.ISSbase)}% do valor, ou seja, ${num2(b.ISS * b.ISSbase / 100)}%.`) +
+        P(`Declaro, para os devidos fins, que conforme a legislação tributária municipal a base de cálculo do ISS para este tipo de obra corresponde a ${num2(b.ISSbase)}%, com a respectiva alíquota de ${num2(b.ISS)}%.`) + assinaturaOrc(c); },
+    memoria: (o, c) => cabecalhoOrc(o, c, "MEMÓRIA DE CÁLCULO DOS QUANTITATIVOS") +
+      tabela(["Item", "Descrição", "Und", "Memória de cálculo", ">Quant."],
+        c.linhas.map(l => l.x.nivel === "servico" ? [l.num, l.x.descricao, l.x.unidade, l.x.memoria || "Quantidade informada", num2(l.qtd)] : [{ t: l.num, b: true }, { t: l.x.descricao, b: true }, "", "", ""]),
+        [650, 3920, 550, 2750, 1200]) + assinaturaOrc(c),
+    crono: (o, c) => { const cr = cronoOrc(c); let s = cabecalhoOrc(o, c, "CRONOGRAMA FÍSICO-FINANCEIRO");
+      for (let i = 0; i < cr.meses.length; i += 4) {
+        const ms = cr.meses.slice(i, i + 4), larg = [600, 2470, 1200, ...ms.map(() => Math.floor(4800 / ms.length))];
+        s += tabela(["Item", "Etapa", ">Valor (R$)", ...ms.map(m => ">" + mesTxt(m))],
+          [...cr.linhas.map(l => [l.g.num, l.g.x.descricao, num2(l.g.total), ...ms.map((_, j) => l.p[i + j] ? `${num2(l.v[i + j])}\n${num2(l.p[i + j])}%` : "–")]),
+            [{ t: "", b: true }, { t: "Total no mês", b: true }, { t: num2(c.com), b: true }, ...ms.map((_, j) => ({ t: `${num2(cr.tot[i + j])}\n${pctTxt(pct(cr.tot[i + j], c.com))}`, b: true }))],
+            [{ t: "", b: true }, { t: "Acumulado", b: true }, "", ...ms.map((_, j) => ({ t: `${num2(cr.acum[i + j])}\n${pctTxt(pct(cr.acum[i + j], c.com))}`, b: true }))]], larg);
+      }
+      return s + assinaturaOrc(c); },
+    ple: (o, c) => { const cr = cronoOrc(c);
+      return cabecalhoOrc(o, c, "PLE – PLANILHA DE LEVANTAMENTO DE EVENTOS") +
+        P("Cada evento corresponde a uma etapa da planilha orçamentária. O evento é medido quando os serviços que o compõem estiverem executados e aferidos pela fiscalização.") +
+        tabela(["Evento", "Descrição", ">Valor (R$)", ">% da obra", "Meses previstos", "Critério de aferição"],
+          [...cr.linhas.map((l, i) => [String(i + 1), `${l.g.num} ${l.g.x.descricao}`, num2(l.g.total), pctTxt(pct(l.g.total, c.com)),
+            l.p.map((p, j) => p ? mesTxt(cr.meses[j]) : "").filter(Boolean).join(", ") || "–",
+            `Execução de 100% dos serviços do item ${l.g.num}, conforme quantidades da planilha`]),
+            [{ t: "", b: true }, { t: "TOTAL", b: true }, { t: num2(c.com), b: true }, { t: "100%", b: true }, "", ""]], [700, 2400, 1200, 900, 1470, 2400]) + assinaturaOrc(c); },
+    memorial: (o, c) => { const m = c.orc.memorial; let s = titulo("MEMORIAL DESCRITIVO") + P("", { after: 120 });
+      s += secao("1. IDENTIFICAÇÃO") + campo("Obra", o.nome) + campo("Objeto", o.objeto) + campo("Tipo de obra", o.tipoObra) + campo("Local", [o.endereco, c.orc.proposta.municipio].filter(Boolean).join(" – ")) +
+        campo("Coordenadas", coordTxt(o)) + campo("Proponente", c.orc.proposta.proponente) + campo("Valor orçado", `${brl(c.com)} (BDI de ${pctBdi(c.bdi)})`) + campo("Referência de preços", `SINAPI-GO ${mesTxt(orcMes(c.orc))}`);
+      s += secao("2. CONSIDERAÇÕES GERAIS") + String(m._geral || memorialGeralPadrao(o)).split(/\n+/).map(t => P(t)).join("");
+      c.grupos.forEach((g, i) => {
+        s += secao(`${i + 3}. ${g.x.descricao.toUpperCase()}`);
+        const txt = m[g.x.id]; if (txt) s += String(txt).split(/\n+/).map(t => P(t)).join("");
+        else s += P("Compreende os seguintes serviços:") + c.servs.filter(l => l.grupo === g.x).map(l => item(`${l.x.descricao} – ${num2(l.qtd)} ${l.x.unidade} (${l.x.fonte} ${l.x.codigo}).`)).join("");
+      });
+      return s + assinaturaOrc(c); }
+  };
+  async function gerarDocOrc(tipo, formato) {
+    const o = curObra(); if (!o) return; docObra = o;
+    const c = orcCalc(o), pdf = formato === "pdf";
+    if (!c.servs.length) { state.error = "Lance pelo menos um serviço na planilha antes de gerar os documentos."; return render(); }
+    state.busy = `orcdoc-${tipo}-${formato}`; state.error = state.info = state.warn = ""; render();
+    try {
+      const ordem = tipo === "tudo" ? ["orc", "bdi", "memoria", "crono", "ple", "memorial"] : [tipo];
+      const corpo = async () => ordem.map((k, i) => (i ? quebra() : "") + docsOrc[k](o, c)).join("");
+      const arq = pdf ? await montarPdf(corpo) : await montarDocx(corpo);
+      const base = { orc: "Planilha_Orcamentaria", bdi: "BDI", memoria: "Memoria_de_Calculo", crono: "Cronograma_Fisico_Financeiro", ple: "PLE", memorial: "Memorial_Descritivo", tudo: "Proposta_Completa" }[tipo];
+      await baixar(`${base}_${slug(o.nome).replace(/-/g, "_")}.${pdf ? "pdf" : "docx"}`, arq);
+    } catch (e) { if (!(e && e.code === "declined")) state.error = `Não foi possível gerar o ${pdf ? "PDF" : "arquivo Word"} agora. Verifique a internet e tente de novo.`; }
+    state.busy = ""; render();
+  }
+  async function baixar(nome, arq) {
+    if (state.downloads) await state.downloads.save({ filename: nome, data: arq });
+    else { const u = URL.createObjectURL(arq); const a = document.createElement("a"); a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); }
+    state.info = `Arquivo gerado: ${nome}.`;
+  }
+
+  /* ----- Excel simples e arquivo de origem para a Múltipla (macro "Importar de outra Planilha Múltipla") ----- */
+  async function gerarExcelOrc() {
+    const o = curObra(), c = orcCalc(o); state.busy = "orc-xlsx"; state.error = ""; render();
+    try {
+      const X = await sheetLib(), linhas = [["PLANILHA ORÇAMENTÁRIA"], ["Obra", o.nome], ["Referência", `SINAPI-GO ${mesTxt(orcMes(c.orc))} ${c.orc.desonerado ? "desonerado" : "não desonerado"}`], ["BDI", c.bdi], [],
+        ["Item", "Nível", "Fonte", "Código", "Descrição", "Unidade", "Memória de cálculo", "Quantidade", "Custo unitário", "Preço com BDI", "Total"]];
+      c.linhas.forEach(l => linhas.push(l.x.nivel === "servico" ? [l.num, "Serviço", l.x.fonte, l.x.codigo, l.x.descricao, l.x.unidade, l.x.memoria || "", l.qtd, l.custo, l.preco, l.total] : [l.num, NIVEL_TXT[l.x.nivel], "", "", l.x.descricao, "", "", "", "", "", l.total]));
+      linhas.push([], ["", "", "", "", "Total sem BDI", "", "", "", "", "", c.sem], ["", "", "", "", "Total com BDI", "", "", "", "", "", c.com]);
+      const ws = X.utils.aoa_to_sheet(linhas); ws["!cols"] = [8, 9, 9, 9, 60, 8, 22, 11, 13, 13, 14].map(wch => ({ wch }));
+      const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, "Orçamento");
+      const cr = cronoOrc(c);
+      if (cr.linhas.length) {
+        const cl = [["Item", "Etapa", "Valor", ...cr.meses.map(mesTxt)], ...cr.linhas.map(l => [l.g.num, l.g.x.descricao, l.g.total, ...l.v]), ["", "Total no mês", c.com, ...cr.tot], ["", "Acumulado", "", ...cr.acum]];
+        X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(cl), "Cronograma");
+      }
+      const out = X.write(wb, { bookType: "xlsx", type: "array" });
+      await baixar(`Orcamento_${slug(o.nome).replace(/-/g, "_")}.xlsx`, new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    } catch (e) { if (!(e && e.code === "declined")) state.error = "Não foi possível gerar a planilha agora. Verifique a internet e tente de novo."; }
+    state.busy = ""; render();
+  }
+  const colNum = s => [...s].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  function pmResolve(texto) {
+    const t = texto.replace(/^=/, "").trim(), REF = /^'?([^'!]+)'?!\$?([A-Z]+)\$?(\d+)$/;
+    const cel = s => { const m = s.trim().match(REF); if (!m) throw 0; return [m[1], colNum(m[2]), Number(m[3])]; };
+    const off = s => { const m = s.trim().match(/^OFFSET\((.+),(-?\d+),(-?\d+)\)$/); if (!m) return cel(s); const [sh, c, r] = cel(m[1]); return [sh, c + Number(m[3]), r + Number(m[2])]; };
+    let m = t.match(/^'?([^'!]+)'?!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/);
+    if (m) return [m[1], colNum(m[2]), Number(m[3]), colNum(m[4]), Number(m[5])];
+    const partes = t.split(/:(?=OFFSET|'?[^!:]+!)/);
+    try { if (partes.length === 2) { const a = off(partes[0]), b = off(partes[1]); return [a[0], a[1], a[2], b[1], b[2]]; } const a = off(t); return [a[0], a[1], a[2], a[1], a[2]]; }
+    catch (e) { return null; }
+  }
+  const serialExcel = iso => { const [y, m, d] = iso.split("-").map(Number); return (Date.UTC(y, m - 1, d || 1) - Date.UTC(1899, 11, 30)) / 86400000; };
+  async function gerarMultipla() {
+    const o = curObra(), c = orcCalc(o), avisos = orcAvisos(c).filter(a => !a.startsWith("BDI"));
+    if (avisos.length) { state.error = "Corrija a planilha antes de gerar o arquivo da Múltipla: " + avisos.slice(0, 3).join(" ") + (avisos.length > 3 ? " …" : ""); return render(); }
+    state.busy = "orc-pm"; state.error = ""; render();
+    try {
+      const X = await sheetLib(), r = await fetch("dados/multipla/pm316_names.json"); if (!r.ok) throw new Error("modelo");
+      const T = await r.json(), FIRST = 15, n = c.linhas.length, ultima = FIRST + n + 1;
+      const wb = X.utils.book_new(), sheets = {};
+      T.sheets.forEach(nome => { sheets[nome] = {}; X.utils.book_append_sheet(wb, sheets[nome], nome); });
+      const nomes = {}; wb.Workbook = wb.Workbook || {}; wb.Workbook.Names = [];
+      for (const [nome, txt0] of Object.entries(T.names)) {
+        if (nome.startsWith("_xlnm")) continue;
+        const txt = txt0.replace(/((?:ORÇAMENTO|CÁLCULO)!\$[A-Z]+\$)22\b/g, `$1${ultima}`).replace(/((?:ORÇAMENTO|CÁLCULO)!\$)22:\$22\b/g, `$1${ultima}:$${ultima}`);
+        nomes[nome] = txt; wb.Workbook.Names.push({ Name: nome, Ref: txt });
+      }
+      const set = (sh, col, row, v) => {
+        if (v === null || v === undefined || v === "") return;
+        const ref = X.utils.encode_cell({ c: col - 1, r: row - 1 }), ws = sheets[sh];
+        ws[ref] = typeof v === "object" ? v : typeof v === "number" ? { t: "n", v } : typeof v === "boolean" ? { t: "b", v } : { t: "s", v: String(v) };
+      };
+      const put = (nome, valores) => { const rg = pmResolve(nomes[nome]); if (!rg) throw new Error("nome " + nome); const [sh, c1, r1] = rg; valores.forEach((lin, i) => lin.forEach((v, j) => set(sh, c1 + j, r1 + i, v))); };
+      const orc = c.orc, p = orc.proposta, b = orc.bdi;
+      set("MENU", 10, 1, "PM"); set("MENU", 10, 2, T.versao); set("MENU", 15, 3, 1); set("MENU", 15, 4, 1);
+      set("CRONO", 8, 10, 2); set("CÁLCULO", 11, 12, "Nº AGRUPADOR DE EVENTOS"); set("ORÇAMENTO", 13, FIRST, "LOTE"); set("ORÇAMENTO", 1, ultima, -1);
+      const data = iso => ({ t: "n", v: serialExcel(iso), z: "dd/mm/yyyy" });
+      const dados = { "import.recurso": /fgts/i.test(o.fonte || "") ? "FGTS" : "OGU", "Import.Proponente": p.proponente, "Import.Município": p.municipio, "Import.CR": (o.caixa || {}).operacao,
+        "Import.Apelido": o.nome, "Import.DescLote": o.objeto || o.nome, "Import.Desoneracao": orc.desonerado ? "DESONERADO" : "NÃO DESONERADO",
+        "Import.DataBase": data((orc.dataBase || (sinapi.indice && sinapi.indice.bases[0].mes) || ym(hojeISO())) + "-01"), "Import.DataPreenchimento": data(hojeISO()),
+        "Import.TipoArredondamento": "TransfereGOV", "Import.RegimeExecução": "(SELECIONAR)" };
+      for (const [nome, v] of Object.entries(dados)) if (nomes[nome]) put(nome, [[v]]);
+      put("Import.RespOrçamento", [[p.responsavel], [p.registro], [p.art]]);
+      put("IMport.Prefeito", [[p.prefeito], [p.cargoPrefeito]]);
+      put("Import.BDI.Tipo1", [[b.tipo]]);
+      const fr = v => Number(((Number(v) || 0) / 100).toFixed(6));
+      put("Import.BDI.Det1", ["AC", "SG", "R", "DF", "L", "CP"].map(k => [fr(b[k])]));
+      put("Import.BDI.ISS", [[fr(b.ISSbase)], [fr(b.ISS)]]);
+      put("Import.BDI.Tipo2", [["(SELECIONAR)"]]); put("Import.BDI.Tipo3", [["(SELECIONAR)"]]);
+      const NIV = { meta: "Meta", etapa: "Nível 2", servico: "Serviço" };
+      const col = (nome, f) => put(nome, c.linhas.map(l => [f(l)]));
+      col("Import.Nível", l => NIV[l.x.nivel]);
+      col("Import.Fonte", l => l.x.nivel === "servico" ? l.x.fonte : null);
+      col("Import.Código", l => l.x.nivel === "servico" ? String(l.x.codigo) : null);
+      col("Import.Descrição", l => l.x.descricao);
+      col("Import.Unidade", l => l.x.nivel === "servico" ? l.x.unidade : null);
+      col("Import.OpcaoBDI", () => "BDI 1");
+      col("Import.ORÇAMENTO.DivRecurso", () => "RA");
+      col("Import.PLQ.MemCalc", l => l.x.nivel === "servico" ? (String(l.x.memoria || "").trim() || null) : null);
+      put("Import.PLQ", c.linhas.map(l => [l.x.nivel === "servico" ? l.qtd : null]));
+      put("Import.FrenteDeObra", [[1]]);
+      c.linhas.forEach((l, i) => { if (l.x.nivel !== "servico") return; const row = FIRST + 1 + i; set("ORÇAMENTO", 33, row, l.custo); set("ORÇAMENTO", 21, row, { t: "n", v: l.custo, f: `AG${row}` }); });
+      put("Import.QCI.Divisao", Array.from({ length: 10 }, () => ["Proporcional"]));
+      put("Import.Eventos.Nível", [["Automática, conforme os agrupadores Nível 2 do Orçamento"]]);
+      put("Import.POArred", Array.from({ length: 5 }, () => [true]));
+      put("Import.BMArred", [[true]]);
+      Object.values(sheets).forEach(ws => { const ks = Object.keys(ws).filter(k => k[0] !== "!"); ws["!ref"] = ks.length ? X.utils.encode_range(ks.map(k => X.utils.decode_cell(k)).reduce((a, d) => ({ s: { r: Math.min(a.s.r, d.r), c: Math.min(a.s.c, d.c) }, e: { r: Math.max(a.e.r, d.r), c: Math.max(a.e.c, d.c) } }), { s: { r: 1e6, c: 1e6 }, e: { r: 0, c: 0 } })) : "A1"; });
+      const out = X.write(wb, { bookType: "xlsx", type: "array" });
+      await baixar(`IMPORTAR_Multipla_${slug(o.nome).replace(/-/g, "_")}.xlsx`, new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      state.info += " Abra a Múltipla v3.16 em branco e use Importar de outra Planilha Múltipla com este arquivo.";
+    } catch (e) { if (!(e && e.code === "declined")) state.error = "Não foi possível gerar o arquivo da Múltipla agora. Verifique a internet e tente de novo."; }
+    state.busy = ""; render();
+  }
+
+  async function memorialComClaude() {
+    const o = curObra(), c = orcCalc(o); if (!state.sample || !c.grupos.length) return;
+    state.busy = "orc-mem"; state.error = state.info = ""; render();
+    try {
+      const ctx = { obra: o.nome, objeto: o.objeto, tipo: o.tipoObra, local: o.endereco, etapas: c.grupos.map(g => ({ id: g.x.id, etapa: g.x.descricao, servicos: c.servs.filter(l => l.grupo === g.x).map(l => `${l.x.descricao} – ${num2(l.qtd)} ${l.x.unidade}`) })) };
+      const res = await state.sample.json(`Você é engenheiro civil e escreve o memorial descritivo de uma obra pública municipal para a Caixa. Escreva em português formal e técnico, só com base nos serviços listados: descreva como cada etapa será executada, materiais e cuidados, sem inventar quantidades, marcas ou serviços que não estão na lista.
+Dados: ${JSON.stringify(ctx)}
+Responda só com JSON: {"_geral": "considerações gerais em 1 ou 2 parágrafos", "<id da etapa>": "texto da etapa em 1 a 3 parágrafos", ...} usando os ids recebidos.`);
+      const r = res && typeof res === "object" ? res : {}, memorial = { ...orcDe(o).memorial };
+      let n = 0; for (const [k, v] of Object.entries(r)) if (typeof v === "string" && (k === "_geral" || c.grupos.some(g => g.x.id === k))) { memorial[k] = v.trim(); n++; }
+      if (!n) throw new Error("vazio");
+      await salvarOrc(o, { memorial }); state.info = "Memorial escrito pelo Claude. Confira e ajuste o texto de cada etapa.";
+    } catch (e) { state.error = e && e.message === "vazio" ? "O Claude não devolveu o texto. Tente de novo." : sampleErro(e); }
+    state.busy = ""; render();
+  }
+
+  async function orcClick(t, o) {
+    const a = t.dataset.act;
+    if (t.dataset.orcFonte) { state.orcBusca.fonte = t.dataset.orcFonte; app.querySelectorAll("[data-orc-fonte]").forEach(b => b.setAttribute("aria-pressed", b === t)); orcBuscarAgora(); return true; }
+    if (t.dataset.orcAlvo) { state.orcAlvo = state.orcAlvo === t.dataset.orcAlvo ? null : t.dataset.orcAlvo; render(); return true; }
+    if (a === "orc-alvo-fim") { state.orcAlvo = null; render(); return true; }
+    if (t.dataset.orcDoc) { await gerarDocOrc(t.dataset.orcDoc, t.dataset.formato); return true; }
+    if (a === "orc-excel") { await gerarExcelOrc(); return true; }
+    if (a === "orc-multipla") { await gerarMultipla(); return true; }
+    if (a === "orc-memorial-claude") { await memorialComClaude(); return true; }
+    if (!t.dataset.orcAdd && !t.dataset.orcMover && !t.dataset.orcDel && !/^orc-/.test(a || "")) return false;
+    try {
+      if (t.dataset.orcAdd) {
+        const base = await orcBaseAtual(o), it = base.mapa.get(t.dataset.orcAdd); if (!it) return true;
+        await orcInserir(o, { id: uid(), nivel: "servico", fonte: it[0] ? "SINAPI-I" : "SINAPI", codigo: String(it[1]), descricao: it[2], unidade: it[3], custo: precoBase(it, orcDe(o)), memoria: "", qtd: "" });
+        state.info = `Adicionado: ${it[2].slice(0, 80)}${it[2].length > 80 ? "…" : ""}. Lance a memória de cálculo ou a quantidade.`;
+      }
+      else if (a === "orc-meta") await orcInserir(o, { id: uid(), nivel: "meta", descricao: "NOVA META" });
+      else if (a === "orc-etapa") await orcInserir(o, { id: uid(), nivel: "etapa", descricao: "NOVA ETAPA" });
+      else if (a === "orc-proprio") await orcInserir(o, { id: uid(), nivel: "servico", fonte: "Cotação", codigo: "COT-" + (orcItens(o).filter(x => x.fonte === "Cotação").length + 1), descricao: "DESCREVA O ITEM", unidade: "UN", custo: "", memoria: "", qtd: "" });
+      else if (t.dataset.orcMover) {
+        const itens = [...orcItens(o)], i = itens.findIndex(x => x.id === t.dataset.orcMover), j = i + Number(t.dataset.dir);
+        if (i < 0 || j < 0 || j >= itens.length) return true;
+        [itens[i], itens[j]] = [itens[j], itens[i]]; await salvarOrc(o, { itens });
+      }
+      else if (t.dataset.orcDel) {
+        const itens = orcItens(o), i = itens.findIndex(x => x.id === t.dataset.orcDel); if (i < 0) return true;
+        const fim = itens[i].nivel === "servico" ? i + 1 : posInsercao(itens, itens[i].id);
+        state.confirm = ""; await salvarOrc(o, { itens: [...itens.slice(0, i), ...itens.slice(fim)] }); state.info = "Excluído.";
+      }
+      else if (a === "orc-bdi-medio") { const orc = orcDe(o), m = BDI_TIPOS[orc.bdi.tipo]; if (m) await salvarOrc(o, { bdi: { ...orc.bdi, AC: m.AC[1], SG: m.SG[1], R: m.R[1], DF: m.DF[1], L: m.L[1] } }); }
+      else if (a === "orc-reprecificar") {
+        state.busy = "orc-rep"; render();
+        const orc = orcDe(o), base = await orcBaseAtual(o); let n = 0, falta = 0;
+        const itens = orc.itens.map(x => { if (x.nivel !== "servico" || !/^SINAPI/.test(x.fonte)) return x; const it = base.mapa.get(`${x.fonte} ${x.codigo}`); if (!it) { falta++; return x; } n++; return { ...x, custo: precoBase(it, orc), descricao: it[2], unidade: it[3] }; });
+        await salvarOrc(o, { itens, dataBase: orc.dataBase || base.mes });
+        state.info = `${n} preço(s) atualizado(s) para SINAPI-GO ${mesTxt(base.mes)}.` + (falta ? ` ${falta} código(s) não existem nesta base; confira esses itens.` : "");
+        state.busy = "";
+      }
+      else if (a === "orc-crono-igual" || a === "orc-crono-obra") {
+        const orc = orcDe(o), c = orcCalc(o), cr = { ...orc.crono };
+        if (a === "orc-crono-obra") { const ini = ym(o.dataInicio), fim = ym(prazoAtual(o)); let n = 0; for (let k = ini; k <= fim && n < 60; k = addMes(k, 1)) n++; cr.inicio = ini; cr.meses = Math.max(1, n); }
+        const n = Math.max(1, Math.min(60, Number(cr.meses) || 1)), parte = Math.floor(10000 / n) / 100;
+        cr.dist = Object.fromEntries(c.grupos.map(g => [g.x.id, Array.from({ length: n }, (_, i) => i === n - 1 ? Math.round((100 - parte * (n - 1)) * 100) / 100 : parte)]));
+        await salvarOrc(o, { crono: cr }); state.info = "Distribuí cada etapa igualmente nos meses. Ajuste conforme a sequência real da obra.";
+      }
+      else if (a === "orc-usar") {
+        const c = orcCalc(o), cr = cronoOrc(c), antigos = o.servicos || [];
+        const servicos = c.grupos.map(g => { const ant = antigos.find(s => s.orcId === g.x.id || s.etapa === g.x.descricao); return { id: ant?.id || uid(), orcId: g.x.id, etapa: g.x.descricao, valor: g.total, percentual: ant?.percentual || 0, obs: ant?.obs || "" }; });
+        const outros = antigos.filter(s => !servicos.some(n => n.id === s.id));
+        const mud = { servicos: [...servicos, ...outros], caixa: { ...(o.caixa || {}), valorPO: c.com, bdi: Math.round(c.bdi * 10000) / 100, dataBase: c.orc.dataBase || "", desonerado: c.orc.desonerado ? "sim" : "nao", referencia: "SINAPI-GO" } };
+        if (cr.tot.some(v => v)) mud.cronograma = cr.meses.map((m, i) => ({ mes: m, previsto: cr.tot[i] })).filter(x => x.previsto);
+        await patch(o, mud);
+        state.info = `Pronto: ${servicos.length} etapa(s) na aba Serviços${mud.cronograma ? ", cronograma mensal na aba Cronograma" : ""} e valor da PO de ${brl(c.com)} nos dados Caixa.`;
+      }
+      else return false;
+    } catch (e) { state.busy = ""; state.error = erroTxt(e, "salvar o orçamento"); }
+    render(); return true;
+  }
+  async function orcChange(el, o) {
+    try {
+      if (el.dataset.orcItem) {
+        const k = el.dataset.k, itens = orcItens(o).map(x => x.id === el.dataset.orcItem ? { ...x, [k]: (k === "custo" || k === "qtd") ? (isNum(el.value) ? Number(el.value) : "") : el.value } : x);
+        await salvarOrc(o, { itens }); render(); return true;
+      }
+      if (el.dataset.orcCampo) {
+        const [a, b] = el.dataset.orcCampo.split("."), orc = orcDe(o);
+        let v = el.value;
+        if (a === "desonerado") v = v === "sim";
+        if (a === "bdi" && b !== "tipo") v = isNum(v) ? Number(v) : 0;
+        if (a === "crono" && b === "meses") v = Math.max(1, Math.min(60, Number(v) || 1));
+        await salvarOrc(o, b ? { [a]: { ...orc[a], [b]: v } } : { [a]: v });
+        if (a === "dataBase" || a === "desonerado") state.info = "Para trazer os preços desta base, clique em Atualizar preços SINAPI.";
+        render(); return true;
+      }
+      if (el.dataset.orcCrono) {
+        const orc = orcDe(o), dist = { ...(orc.crono.dist || {}) }, arr = [...(dist[el.dataset.orcCrono] || [])];
+        arr[Number(el.dataset.i)] = isNum(el.value) ? Number(el.value) : 0; for (let i = 0; i < arr.length; i++) arr[i] = arr[i] || 0;
+        dist[el.dataset.orcCrono] = arr; await salvarOrc(o, { crono: { ...orc.crono, dist } }); render(); return true;
+      }
+      if (el.dataset.orcMemorial) {
+        await salvarOrc(o, { memorial: { ...orcDe(o).memorial, [el.dataset.orcMemorial]: el.value } }); return true;
+      }
+    } catch (e) { state.error = erroTxt(e, "salvar o orçamento"); render(); return true; }
+    return false;
+  }
+
   /* ---------- Eventos ---------- */
   app.addEventListener("click", async ev => {
     const t = ev.target.closest("button"); if (!t || t.disabled) return;
@@ -1507,9 +2172,11 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     if (t.dataset.ver) return abrirPreview(t.dataset.ver, t.dataset.nome);
     if (t.dataset.aba) { state.preview.sheet = Number(t.dataset.aba); return render(); }
     if (t.dataset.filtro) { state.filtro = t.dataset.filtro; return render(); }
+    if (t.dataset.area) { state.area = t.dataset.area; state.filtro = "todas"; state.busca = ""; return go("lista"); }
     if (t.dataset.abrir) { try { history.replaceState(null, "", "#" + t.dataset.abrir); } catch (e) {} state.tab = "resumo"; state.med = null; state.doc = null; state.cron = null; state.reg = null; state.preview = null; state.and = null; return go(t.dataset.abrir); }
     if (t.dataset.alerta) { try { history.replaceState(null, "", "#" + t.dataset.alerta); } catch (e) {} state.tab = t.dataset.alertaTab || "resumo"; state.med = null; state.doc = null; state.cron = null; state.reg = null; state.preview = null; state.and = null; return go(t.dataset.alerta); }
     if (t.dataset.tab) { state.preview = null; state.reg = null; state.tab = t.dataset.tab; state.error = state.info = state.warn = ""; state.confirm = ""; return render(); }
+    if (o && state.tab === "orcamento" && await orcClick(t, o)) return;
     if (t.dataset.add) { state.draft[t.dataset.add] = [...(state.draft[t.dataset.add] || []), { ...LISTAS[t.dataset.add].novo }]; return render(); }
     if (t.dataset.rem) { state.draft[t.dataset.rem].splice(Number(t.dataset.i), 1); return render(); }
     if (t.dataset.descrever) {
@@ -1539,7 +2206,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     if (t.dataset.yes) {
       const [tipo, id] = t.dataset.yes.split(/:(.*)/s); state.confirm = "";
       try {
-        if (tipo === "obra") { await state.db.collection("obras").doc(id).delete(); state.draft = null; state.editId = null; go("lista"); state.info = "Obra excluída."; return render(); }
+        if (tipo === "obra") { if (state.draft) state.area = areaDe(state.draft); await state.db.collection("obras").doc(id).delete(); state.draft = null; state.editId = null; go("lista"); state.info = "Obra excluída."; return render(); }
         if (tipo === "med") await patch(o, { medicoes: (o.medicoes || []).filter(x => x.id !== id) });
         if (tipo === "reg") { const [lista, rid] = id.split(/:(.*)/s); if (REG[lista]) await patch(o, { [lista]: (o[lista] || []).filter(x => x.id !== rid) }); }
         if (tipo === "doc") { const d = (o.documentos || []).find(x => x.id === id); await patch(o, { documentos: (o.documentos || []).filter(x => x.id !== id) }); for (const f of (d?.arquivos || [])) await state.assets?.delete(f.id).catch(() => {}); }
@@ -1594,11 +2261,12 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     }
     if (a === "prev-fechar") { state.preview = null; return render(); }
     if (a === "prev-baixar") return baixarOriginal();
-    if (a === "voltar") { try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} return go("lista"); }
+    if (a === "voltar") { if (o) state.area = areaDe(o); try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} return go("lista"); }
+    if (a === "inicio") { state.area = null; return go("inicio"); }
     if (a === "imp-ler") return lerLicitacao();
-    if (a === "nova") { state.impFiles = []; state.editId = null; state.draft = { situacao: "andamento", caixa: {}, pendencias: [], vistorias: [], aditivos: [], relatorios: [] }; return go("editar"); }
+    if (a === "nova") { state.impFiles = []; state.editId = null; state.draft = { area: state.area || "prefeitura", situacao: "andamento", caixa: {}, pendencias: [], vistorias: [], aditivos: [], relatorios: [] }; return go("editar"); }
     if (a === "editar") { state.impFiles = []; state.editId = o.id; state.draft = limpo(o); state.draft.coordenadas = coordTxt(o); return go("editar"); }
-    if (a === "cancelar") { state.impFiles = []; const back = state.editId || "lista"; state.draft = null; state.editId = null; return go(back); }
+    if (a === "cancelar") { state.impFiles = []; const back = state.editId || "lista"; if (state.draft) state.area = areaDe(state.draft); state.draft = null; state.editId = null; return go(back); }
     // Documentos
     if (a === "doc-new") { state.doc = { categoria: CATS[0], titulo: "", data: "" }; state.docFiles = []; return render(); }
     if (a === "doc-cancel") { state.doc = null; state.docFiles = []; state.error = ""; return render(); }
@@ -1660,6 +2328,8 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
   app.addEventListener("input", ev => {
     const el = ev.target;
     if (el.id === "busca") { state.busca = el.value; state._focusBusca = true; return renderLista(); }
+    if (el.id === "orc-q") { state.orcBusca.q = el.value; orcBuscarAgora(); return; }
+    if (el.dataset.orcItem || el.dataset.orcCampo || el.dataset.orcCrono || el.dataset.orcMemorial) return;
     if (el.dataset.andPct) {
       const d = andDraft(curObra()); d.percentual = el.value;
       const outro = document.getElementById(el.id === "and-range" ? "and-num" : "and-range"); if (outro) outro.value = el.value;
@@ -1680,6 +2350,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
 
   app.addEventListener("change", async ev => {
     const el = ev.target; const o = curObra();
+    if (o && (el.dataset.orcItem || el.dataset.orcCampo || el.dataset.orcCrono || el.dataset.orcMemorial)) { await orcChange(el, o); return; }
     if (el.dataset.andVist) { andDraft(o).vistoria = el.checked; return; }
     if (el.dataset.andPct || el.dataset.andObs) return;
     if (el.dataset.bind) { const [obj, k] = el.dataset.bind.split("."); if (k) { if (state[obj]) state[obj][k] = el.value; } else state[obj] = el.value; return; }
@@ -1695,7 +2366,8 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     if (el.id === "imp-files") { [...el.files].forEach(f => state.impFiles.push({ file: f, cat: catPorNome(f.name) })); state.error = ""; return render(); }
     if (state.draft && (el.dataset.l || el.dataset.k || el.dataset.cx)) {
       const val = el.type === "checkbox" ? el.checked : el.value;
-      if (el.dataset.l) state.draft[el.dataset.l][Number(el.dataset.i)][el.dataset.k] = val; else if (el.dataset.cx) state.draft.caixa[el.dataset.cx] = val; else state.draft[el.dataset.k] = val; return;
+      if (el.dataset.l) state.draft[el.dataset.l][Number(el.dataset.i)][el.dataset.k] = val; else if (el.dataset.cx) state.draft.caixa[el.dataset.cx] = val; else state.draft[el.dataset.k] = val;
+      if (el.id === "f-area") render(); return;
     }
     if (el.id === "med-files" || el.id === "med-cam") { state.medFiles.push(...el.files); state.error = ""; return render(); }
     if (el.id === "doc-files") { state.docFiles.push(...el.files); state.error = ""; return render(); }
@@ -1737,7 +2409,7 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     const db = await use("db");
     state.db = db || null;
     if (!db) { render(); return; }
-    try { const user = await use("user"); if (user && (await user.can("data.write")) === false) state.readOnly = true; } catch (e) {}
+    try { const user = await use("user"); if (user && (await user.can("data.write")) === false) state.readOnly = true; if (user && user.id) state.userId = await user.id(); } catch (e) {}
     db.collection("obras").onSnapshot(snap => {
       state.obras = snap.docs.map(d => ({ id: d.id, ...JSON.parse(JSON.stringify(d.data())) }));
       const first = !state.loaded; state.loaded = true;

@@ -52,6 +52,9 @@ A chave fica guardada só no Supabase e nunca aparece no site. Só administrador
 - `app.js`: telas e regras (obras, medições, cronograma, fotos, documentos).
 - `backend.js`: login e ligação com o Supabase (banco, arquivos e leitura automática).
 - `config.js`: endereço e chave pública do Supabase.
+- `dados/sinapi/`: bases SINAPI-GO por mês e o índice das bases.
+- `dados/multipla/pm316_names.json`: nomes definidos da Múltipla v3.16 usados no arquivo de importação.
+- `ferramentas/sinapi_base.py`: converte a planilha SINAPI da Caixa (ou a Referência) na base do site.
 - `supabase/schema.sql`: estrutura do banco e obras iniciais.
 - `supabase/functions/ler-documento/index.ts`: função que lê documentos com o Claude.
 
@@ -63,6 +66,15 @@ A chave fica guardada só no Supabase e nunca aparece no site. Só administrador
 - O login trava por alguns minutos depois de 5 senhas erradas seguidas, além dos limites do próprio Supabase (**Authentication > Rate Limits**).
 - As funções `ler-documento` e `equipe` conferem o login e o papel, têm limite de uso por pessoa e devolvem só mensagens genéricas de erro (os detalhes ficam em **Edge Functions > Logs**).
 - O site só usa consultas parametrizadas do supabase-js e funções SQL sem SQL dinâmico, então não há ponto de entrada para SQL injection.
+
+## Duas áreas: Prefeitura e Pessoal
+
+Ao entrar, o site pergunta onde você quer ir:
+
+- **Prefeitura de Edealina**: a fiscalização das obras do Município, com o logo e o papel timbrado da Prefeitura.
+- **Pessoal**: as suas obras particulares, com a marca *Higor Rodrigues de Souza · Engenheiro Civil* no topo do site e em todos os PDFs e arquivos Word (sem timbre da Prefeitura).
+
+Cada obra pertence a uma área (campo **Área** em Editar dados). As obras pessoais só aparecem para quem as criou: nem os outros membros da equipe da Prefeitura, nem os administradores, conseguem vê-las ou alterá-las, porque a regra fica no próprio banco. Para ativar essa regra, rode de novo o arquivo [`supabase/schema.sql`](supabase/schema.sql) no SQL Editor do Supabase (não apaga nada).
 
 ## Gestão da obra
 
@@ -76,5 +88,24 @@ Cada obra tem, além das abas originais:
 O **RDO (Relatório Diário de Obra)** sai no formato padrão: turnos de tempo, mão de obra por função, equipamentos, atividades, ocorrências, pendências, prazo decorrido/restante e assinatura do fiscal e do responsável da contratada, um por dia ou vários num arquivo.
 
 Cada relatório (RDO, do dia, completo e o diário de vários dias) sai em **Word** ou **PDF**, no papel timbrado, com fotos e assinatura.
+
+## Orçamento e proposta para a Caixa
+
+Cada obra tem a aba **Orçamento**, com a planilha orçamentária no padrão da Múltipla:
+
+- **Busca no SINAPI-GO** por código ou descrição (composições e insumos), com o preço da data-base escolhida, desonerado ou não. Itens fora do SINAPI entram como cotação ou composição própria.
+- **Metas, etapas e serviços**, numerados 1, 1.1, 1.1.1, com **memória de cálculo** (ex.: `3*8*4` ou `2,5*3`) que calcula a quantidade.
+- **BDI** pela fórmula do Acórdão TCU 2622/2013, com as faixas do TCU para o tipo de obra e aviso quando uma parcela sai da faixa. O preço com BDI é arredondado como na Múltipla (o orçamento do bueiro dá os mesmos R$ 6.006,88).
+- **Cronograma físico-financeiro** por etapa e mês, com acumulado.
+- **Memorial descritivo** por etapa, escrito à mão ou com o Claude a partir dos serviços.
+- **Documentos em PDF e Word** no papel timbrado: planilha orçamentária, composição do BDI, memória de cálculo, cronograma, PLE (eventos por etapa), memorial descritivo, ou tudo num arquivo só.
+- **Arquivo para a Múltipla**: um .xlsx que a própria Múltipla v3.16 importa pelo botão *Importar de outra Planilha Múltipla* (a macro da Caixa cria as linhas e preenche DADOS, BDI, ORÇAMENTO e CÁLCULO). Também sai a planilha simples em Excel.
+- **Usar no controle da obra** passa as etapas com valor para a aba Serviços, o cronograma para a aba Cronograma e o total para os dados Caixa.
+
+### Base SINAPI todo mês
+
+A base de preços fica em `dados/sinapi/` (um arquivo por mês, Goiás). O robô [`sinapi-mensal`](.github/workflows/sinapi-mensal.yml) roda nos dias 12, 20 e 28, baixa o arquivo do mês no site da Caixa, converte com [`ferramentas/sinapi_base.py`](ferramentas/sinapi_base.py) e grava a base nova no site. Se a Caixa mudar o endereço ou o formato, ele falha e o GitHub manda e-mail, em vez de o site ficar com preço velho sem aviso. Para rodar na mão: **Actions > Base SINAPI mensal > Run workflow**. Também dá para gerar a base a partir da sua *Referência MM-AAAA.xlsm*: `python ferramentas/sinapi_base.py "Referência 06-2026.xlsm" 2026-06`.
+
+Cada orçamento guarda o preço do mês em que foi feito. Mudar para a base nova é uma escolha sua, no botão **Atualizar preços SINAPI**.
 
 Nada disso altera os dados antigos: são campos novos em cada obra, que começam vazios.

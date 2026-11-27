@@ -1,0 +1,7 @@
+{
+ "uf": "GO",
+ "local": "Goiânia",
+ "bases": [
+  { "mes": "2026-05", "arquivo": "GO-2026-05.json", "atualizadoEm": "2026-06-12", "origem": "Referência 05-2026 (Banco de Custos 2.8), relatórios SINAPI de Goiás" }
+ ]
+}
