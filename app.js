@@ -163,7 +163,7 @@
     let body;
     if (!state.db) body = `<div class="empty">Não foi possível abrir o banco de dados desta página. Entre na sua conta do Claude e abra o link de novo.</div>`;
     else if (!state.loaded) body = `<div class="empty">Carregando as obras cadastradas…</div>`;
-    else if (!obras.length) body = `<div class="empty">Nenhuma obra cadastrada ainda. Use <b>+ Nova obra</b> para criar a primeira ficha.</div>`;
+    else if (!obras.length) body = `<div class="empty">Nenhuma obra cadastrada ainda. Use <b>+ Nova obra</b> para criar a primeira ficha.</div>` + blocoRecursos();
     else body = `
       <div class="summary">
         <div class="tile"><div class="eyebrow">Obras</div><div class="v num">${obras.length}</div></div>
@@ -173,6 +173,7 @@
         <div class="tile"><div class="eyebrow">Valor em execução</div><div class="v num sm">${brl(ativos.reduce((s, o) => s + valorTotal(o), 0))}</div><div class="sub">Medido ${brl(ativos.reduce((s, o) => s + medido(o), 0))}</div></div>
       </div>
       ${blocoAlertas(obras.flatMap(alertas), true)}
+      ${blocoRecursos()}
       <div class="filters">
         ${["todas", "andamento", "atrasada", "paralisada", "nao_iniciada", "concluida"].map(k =>
           `<button class="chip" data-filtro="${k}" aria-pressed="${state.filtro === k}">${k === "todas" ? "Todas" : SIT[k]}</button>`).join("")}
@@ -191,6 +192,71 @@
     app.innerHTML = header() + msgs() + body;
     const b = document.getElementById("busca");
     if (b && state._focusBusca) { b.focus(); b.setSelectionRange(b.value.length, b.value.length); state._focusBusca = false; }
+  }
+
+  /* ---------- Recursos e repasses ----------
+     dados/recursos/edealina.json é gravado todo dia pelo robô recursos-diario (ferramentas/monitor_recursos.py)
+     com convênios federais (Portal da Transparência), obras do Obrasgov e menções no diário oficial. */
+  const TIPO_REC = { convenio: "Convênio federal", obra: "Obra federal (Obrasgov)", diario: "Diário oficial" };
+  const NOME_FONTE = { convenios: "Portal da Transparência", obras: "Obrasgov.br", diario: "Querido Diário" };
+  const soDig = s => String(s || "").replace(/\D/g, "");
+  const urlSegura = u => /^https?:\/\//i.test(String(u || "")) ? String(u) : "";
+  const recente = d => { const n = diasAte(d); return n !== null && n >= -30 && n <= 0; };
+  const frase = t => { t = String(t || "").trim(); if (t && t === t.toUpperCase()) t = t.toLowerCase().replace(/^./, c => c.toUpperCase()); return t; };
+  /* Liga a ficha ao convênio pelo número: "Contrato de repasse / operação", nº do contrato ou fonte de recurso */
+  function recDaObra(o) {
+    if (!state.recursos || areaDe(o) !== "prefeitura") return null;
+    const alvos = [(o.caixa || {}).operacao, o.numero, o.fonte].map(soDig).filter(Boolean);
+    return (state.recursos.itens || []).find(x => x.tipo === "convenio" && soDig(x.numero).length >= 5 && alvos.some(a => a.includes(soDig(x.numero)))) || null;
+  }
+  const obraDoRec = x => state.obras.find(o => recDaObra(o) === x);
+  function blocoRecursos() {
+    const R = state.recursos;
+    if (state.area !== "prefeitura" || !R) return "";
+    const its = [...(R.itens || [])].sort((a, b) => (recente(b.primeiraVez) || recente(b.liberadoMudouEm)) - (recente(a.primeiraVez) || recente(a.liberadoMudouEm))
+      || String(b.data || b.primeiraVez || "").localeCompare(String(a.data || a.primeiraVez || "")));
+    const conv = its.filter(x => x.tipo === "convenio"), tot = conv.reduce((s, x) => s + (Number(x.valor) || 0), 0), lib = conv.reduce((s, x) => s + (Number(x.liberado) || 0), 0);
+    const novos = its.filter(x => recente(x.primeiraVez) || recente(x.liberadoMudouEm)).length;
+    const max = state.todosRecursos ? its.length : 5;
+    const falhas = Object.entries(R.fontes || {}).filter(([, f]) => !f.ok);
+    const quando = R.atualizadoEm ? new Date(R.atualizadoEm).toLocaleDateString("pt-BR") : "";
+    const item = x => {
+      const ob = x.tipo !== "diario" ? obraDoRec(x) : null, url = urlSegura(x.url), v = Number(x.valor) || 0, l = Number(x.liberado) || 0;
+      return `<li class="rec">
+        <div class="rec-top"><span class="kind">${esc(TIPO_REC[x.tipo] || x.fonte || "")}</span>${recente(x.primeiraVez) ? `<span class="pill s-ok">Novo</span>` : ""}${!recente(x.primeiraVez) && recente(x.liberadoMudouEm) ? `<span class="pill s-ok">Nova liberação</span>` : ""}${x.situacao ? `<span class="muted small">${esc(frase(x.situacao))}</span>` : ""}</div>
+        <b class="rec-tit">${esc(frase(x.titulo))}</b>
+        <div class="meta small muted">${x.numero ? `<span>Nº ${esc(x.numero)}</span>` : ""}${x.orgao ? `<span>${esc(x.orgao)}</span>` : ""}${x.data ? `<span>${dt(x.data)}</span>` : ""}${x.vigenciaFim ? `<span>Vigência até ${dt(x.vigenciaFim)}</span>` : ""}</div>
+        ${v ? `<div class="rec-val"><span class="small"><b class="num">${brl(l)}</b> liberado de <span class="num">${brl(v)}</span>${x.tipo === "convenio" ? ` (${pctTxt(pct(l, v))})` : ""}</span>${x.tipo === "convenio" ? `<div class="bar wide"><i style="width:${Math.min(100, pct(l, v))}%"></i></div>` : ""}</div>` : ""}
+        ${x.trecho ? `<p class="small rec-trecho">${esc(x.trecho)}</p>` : ""}
+        <div class="btns">${url ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">Ver na fonte ↗</a>` : ""}${ob ? `<button class="sm" data-abrir="${esc(ob.id)}">Ficha: ${esc(ob.nome)}</button>` : x.tipo !== "diario" && canWrite() ? `<button class="sm" data-rec-criar="${esc(x.id)}">Criar ficha desta obra</button>` : ""}</div>
+      </li>`;
+    };
+    return `<section class="blk recursos"><header><h3>Recursos e repasses para Edealina</h3><span class="muted small">${novos ? `<b style="color:var(--ok)">${novos} novidade${novos > 1 ? "s" : ""}</b> · ` : ""}${quando ? `Atualizado em ${quando}` : "Ainda não consultado"}</span></header>
+      ${conv.length ? `<div class="rec-resumo small"><span><b class="num">${conv.length}</b> convênio${conv.length > 1 ? "s" : ""} federa${conv.length > 1 ? "is" : "l"}</span><span>Valor <b class="num">${brl(tot)}</b></span><span>Liberado <b class="num">${brl(lib)}</b> (${pctTxt(pct(lib, tot))})</span></div>` : ""}
+      ${its.length ? `<ul class="rec-lista">${its.slice(0, max).map(item).join("")}</ul>` : `<p class="muted small" style="margin:0">${Object.keys(R.fontes || {}).length ? "Nenhum recurso encontrado para Edealina nas fontes consultadas." : "Aguardando a primeira consulta do robô, que roda todo dia às 7h17."}</p>`}
+      ${its.length > max ? `<button class="ghost sm" data-rec-todos="1">Ver todos os ${its.length} itens</button>` : ""}
+      ${falhas.length ? `<p class="muted small" style="margin:10px 0 0">Sem resposta na última consulta: ${falhas.map(([k, f]) => esc(NOME_FONTE[k] || k) + (/CHAVE_PORTAL/.test(f.erro || "") ? " (falta cadastrar a chave da API)" : "")).join(", ")}.</p>` : ""}
+    </section>`;
+  }
+  function blocoRepasse(o, md) {
+    const x = recDaObra(o); if (!x) return "";
+    const v = Number(x.valor) || 0, l = Number(x.liberado) || 0, url = urlSegura(x.url);
+    return `<section class="blk"><header><h3>Repasse do governo federal</h3>${url ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">Ver na fonte ↗</a>` : ""}</header>
+      <dl class="kv" style="margin:0 0 10px">
+        ${kv(esc(x.instrumento || "Convênio"), esc(x.numero || "—"))}
+        ${kv("Órgão", esc(x.orgao || "—"))}
+        ${kv("Situação", esc(frase(x.situacao) || "—"))}
+        ${kv("Valor do repasse", `<span class="num">${brl(x.valor)}</span>`)}
+        ${kv("Contrapartida", `<span class="num">${brl(x.contrapartida)}</span>`)}
+        ${kv("Liberado pelo governo", `<span class="num">${brl(l)}</span> <span class="muted">(${pctTxt(pct(l, v))})</span>`)}
+        ${kv("Última liberação", dt(x.ultimaLiberacao))}
+        ${kv("Vigência até", dt(x.vigenciaFim))}
+      </dl>
+      <div class="bar wide" title="Liberado"><i style="width:${Math.min(100, pct(l, v))}%"></i></div>
+      <p class="small" style="margin:8px 0 0">Medido na obra <b class="num">${brl(md)}</b> · liberado pelo governo <b class="num">${brl(l)}</b>.
+        ${md > l + 0.01 ? `<span style="color:var(--warn)">O medido passa ${brl(md - l)} do liberado: confira a contrapartida e se há parcela a liberar.</span>` : ""}</p>
+      <p class="muted small" style="margin:6px 0 0">Dados de ${esc(x.fonte || "fonte pública")}, atualizados todo dia.</p>
+    </section>`;
   }
 
   /* ---------- Ficha ---------- */
@@ -240,6 +306,7 @@
         <div class="tile"><div class="eyebrow">Saldo</div><div class="v num sm" ${vt - md < 0 ? 'style="color:var(--bad)"' : ""}>${brl(vt - md)}</div></div>
         <div class="tile"><div class="eyebrow">Cronograma</div><div style="margin-top:6px">${cc.status ? `<span class="pill s-${cc.status.cls}">${esc(cc.status.txt)}</span>` : `<span class="muted small">Cronograma não lançado</span>`}</div></div>
       </div>
+      ${blocoRepasse(o, md)}
       <dl class="kv">
         ${kv("Tipo de obra", esc(o.tipoObra || "—"))}
         ${kv("Contrato / instrumento", esc(o.numero || "—"))}
@@ -664,6 +731,9 @@ Responda só com JSON: {"servicos": "serviços executados no dia, um por linha c
     if (nv) add("bad", `${nv} notificação(ões) sem resposta no prazo`, "notificacoes");
     (o.prazos || []).forEach(x => { const n = diasAte(x.vencimento); if (n === null) return;
       if (n < 0) add("bad", `${x.tipo} vencido(a) em ${dt(x.vencimento)}`, "notificacoes"); else if (n <= 30) add("warn", `${x.tipo} vence em ${n} dia(s) (${dt(x.vencimento)})`, "notificacoes"); });
+    const rc = recDaObra(o), nr = rc ? diasAte(rc.vigenciaFim) : null;
+    if (nr !== null && nr < 0) add("bad", `Vigência do convênio ${rc.numero} terminou em ${dt(rc.vigenciaFim)}`, "resumo");
+    else if (nr !== null && nr <= 60) add("warn", `Vigência do convênio ${rc.numero} termina em ${nr} dia(s) (${dt(rc.vigenciaFim)})`, "resumo");
     if (fis && isNum(o.percentual) && Math.abs(fis.pct - Number(o.percentual)) >= 5) add("info", `% da ficha (${pctTxt(Number(o.percentual))}) diferente do calculado pelos serviços (${pctTxt(fis.pct)})`, "servicos");
     return a;
   }
@@ -2197,6 +2267,16 @@ Responda só com JSON: {"_geral": "considerações gerais em 1 ou 2 parágrafos"
       state.reg = { lista, item: JSON.parse(JSON.stringify({ ...REG[lista].novo(), ...x })) }; NUMS.forEach(k => { if (state.reg.item[k] === null) state.reg.item[k] = ""; });
       state.error = state.info = state.warn = ""; render(); window.scrollTo(0, app.querySelector(".panel")?.offsetTop - 70 || 0); return;
     }
+    if (t.dataset.recTodos) { state.todosRecursos = true; return render(); }
+    if (t.dataset.recCriar) {
+      const x = (state.recursos?.itens || []).find(y => y.id === t.dataset.recCriar); if (!x || !canWrite()) return;
+      const nome = frase(x.titulo), instr = x.tipo === "convenio" && x.numero ? `${frase(x.instrumento) || "Convênio"} nº ${x.numero}` : x.tipo === "obra" && x.numero ? `Obrasgov ${x.numero}` : "";
+      state.impFiles = []; state.editId = null;
+      state.draft = { area: "prefeitura", situacao: "nao_iniciada", nome: nome.length > 90 ? nome.slice(0, 87).replace(/\s+\S*$/, "") + "…" : nome, objeto: frase(x.descricao) || nome,
+        municipio: "Edealina - GO", fonte: [x.orgao, instr].filter(Boolean).join(" · ") || x.fonte || "", caixa: { operacao: x.tipo === "convenio" ? x.numero || "" : "" },
+        pendencias: [], vistorias: [], aditivos: [], relatorios: [] };
+      go("editar"); state.info = "Ficha preenchida com os dados do repasse. Complete contrato, empresa, valor e prazo e salve."; return render();
+    }
     if (t.dataset.ask) { state.confirm = t.dataset.ask; return render(); }
     if (t.dataset.no) { state.confirm = ""; return render(); }
     if (t.dataset.unpend) { (t.dataset.unpend === "med" ? state.medFiles : state.docFiles).splice(Number(t.dataset.i), 1); return render(); }
@@ -2419,6 +2499,7 @@ Responda só com JSON: {"_geral": "considerações gerais em 1 ou 2 parágrafos"
       if (state.view !== "editar" && !digitando && !state.busy) render();
     }, () => { state.error = "A conexão com o banco de dados caiu. Recarregue a página."; render(); });
     use("assets").then(a => { state.assets = a || null; render(); });
+    fetch("dados/recursos/edealina.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).then(R => { if (R && Array.isArray(R.itens)) { state.recursos = R; if (state.view !== "editar") render(); } }).catch(() => {});
     use("downloads").then(d => { state.downloads = d || null; if (state.preview) render(); });
     use("sample").then(async s => { state.sample = s || null; if (s) { const l = await s.limits().catch(() => null); state.imgLimits = l?.images || null; } render(); });
   })();

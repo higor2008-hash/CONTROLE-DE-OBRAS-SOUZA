@@ -9,3 +9,4 @@ Site estático (GitHub Pages) + Supabase. Usuário: fiscal de obras; toda a inte
 - Para testar sem Supabase: carregue `style.css` + um stub de `window.claude` + `app.js` numa página local (servida por HTTP, porque o orçamento busca `dados/`).
 - Documentos (PDF/Word) da área pessoal usam `img/marca-higor.png` no lugar do papel timbrado da Prefeitura (`docObra`, `timbrePessoalDocx`).
 - Mudanças no banco: atualize `supabase/schema.sql` de forma que possa ser rodado de novo sem apagar dados.
+- Recursos e repasses: `ferramentas/monitor_recursos.py` (robô `recursos-diario.yml`, diário) grava `dados/recursos/edealina.json` (`fontes{}`, `itens[{id, tipo: convenio|obra|diario, titulo, numero, orgao, valor, liberado, situacao, vigenciaFim, url, primeiraVez, liberadoMudouEm}]`). `app.js` lê com `fetch` (`blocoRecursos` na lista da Prefeitura, `blocoRepasse` no resumo); a ficha se liga ao convênio pelos dígitos do número em `caixa.operacao`, `numero` ou `fonte` (`recDaObra`).

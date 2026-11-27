@@ -385,3 +385,17 @@ header.top button.ghost-claro:hover { background: rgba(255, 255, 255, .12); }
   header.top .head-btns { width: 100%; }
   header.top .head-btns > button { flex: 1 1 auto; }
 }
+
+/* Recursos e repasses (tela inicial da Prefeitura e ficha da obra) */
+.recursos .rec-resumo { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-bottom: 10px; color: var(--muted); }
+.recursos .rec-resumo b { color: var(--ink); }
+.rec-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rec { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--bg); display: grid; gap: 6px; min-width: 0; }
+.rec-top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.rec-tit { overflow-wrap: anywhere; }
+.rec .meta { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.rec-val { display: grid; gap: 4px; }
+.rec-trecho { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.rec .btns .btn, .rec .btns button { min-height: 0; }
+.recursos > .ghost { margin-top: 8px; }
+@media (max-width: 640px) { .rec .btns > * { flex: 1 1 auto; text-align: center; } }

@@ -54,6 +54,8 @@ A chave fica guardada só no Supabase e nunca aparece no site. Só administrador
 - `config.js`: endereço e chave pública do Supabase.
 - `dados/sinapi/`: bases SINAPI-GO por mês e o índice das bases.
 - `dados/multipla/pm316_names.json`: nomes definidos da Múltipla v3.16 usados no arquivo de importação.
+- `dados/recursos/edealina.json`: convênios, obras federais e diário oficial de Edealina, gravado todo dia pelo robô `recursos-diario`.
+- `ferramentas/monitor_recursos.py`: consulta as fontes públicas, grava esse arquivo e manda os avisos.
 - `ferramentas/sinapi_base.py`: converte a planilha SINAPI da Caixa (ou a Referência) na base do site.
 - `supabase/schema.sql`: estrutura do banco e obras iniciais.
 - `supabase/functions/ler-documento/index.ts`: função que lê documentos com o Claude.
@@ -88,6 +90,31 @@ Cada obra tem, além das abas originais:
 O **RDO (Relatório Diário de Obra)** sai no formato padrão: turnos de tempo, mão de obra por função, equipamentos, atividades, ocorrências, pendências, prazo decorrido/restante e assinatura do fiscal e do responsável da contratada, um por dia ou vários num arquivo.
 
 Cada relatório (RDO, do dia, completo e o diário de vários dias) sai em **Word** ou **PDF**, no papel timbrado, com fotos e assinatura.
+
+## Recursos e repasses para Edealina
+
+Na tela inicial da Prefeitura há a seção **Recursos e repasses para Edealina**, atualizada sozinha todo dia às 7h17 pelo robô [`recursos-diario`](.github/workflows/recursos-diario.yml):
+
+- **Convênios e contratos de repasse federais** (Portal da Transparência): valor, quanto já foi liberado, situação, órgão e vigência.
+- **Obras federais** cadastradas no Obrasgov.br que citam Edealina.
+- **Diário oficial** do município (Querido Diário), com menções a obra, convênio, licitação, emenda e repasse, se o município estiver coberto.
+
+O que apareceu nos últimos 30 dias ganha a marca **Novo**; convênio com dinheiro liberado recentemente ganha **Nova liberação**. Em cada item:
+
+- **Criar ficha desta obra** abre o cadastro já preenchido (nome, objeto, fonte de recurso e nº do convênio em *Contrato de repasse / operação*).
+- Se a obra já tem ficha, o site liga os dois pelo número do convênio (campo *Contrato de repasse / operação*, nº do contrato ou fonte de recurso). A ficha passa a mostrar o quadro **Repasse do governo federal**: valor, contrapartida, quanto já foi liberado e a comparação com o medido. O Monitoramento avisa quando a vigência do convênio está para acabar.
+
+Os dados ficam em `dados/recursos/edealina.json`. São informações públicas do governo, por isso podem ficar no repositório.
+
+### Como ativar (uns 10 minutos)
+
+1. **Chave do Portal da Transparência** (grátis, necessária para os convênios): entre em <https://portaldatransparencia.gov.br/api-de-dados/cadastrar-email> com a conta gov.br. A chave chega por e-mail.
+2. Aqui no GitHub, vá em **Settings > Secrets and variables > Actions > New repository secret** e crie `CHAVE_PORTAL` com a chave.
+3. **Avisos no celular (opcional)**: no Telegram, fale com o `@BotFather`, mande `/newbot` e guarde o token. Mande uma mensagem qualquer para o seu bot e abra `https://api.telegram.org/bot<TOKEN>/getUpdates`; o número em `"chat":{"id": ...}` é o chat id. Crie os secrets `TG_TOKEN` e `TG_CHAT`.
+4. **Avisos por e-mail (opcional)**: crie os secrets `SMTP_HOST` (ex.: `smtp.gmail.com`), `SMTP_PORT` (`587`), `SMTP_USER` (seu e-mail), `SMTP_PASS` (no Gmail, uma *senha de app*) e `EMAIL_PARA`.
+5. Vá em **Actions > Recursos e repasses diário > Run workflow**. Na primeira vez ele só registra o que já existe e manda uma mensagem de "ativado"; depois avisa só o que for novo (convênio novo, nova liberação de dinheiro, obra nova, menção no diário).
+
+Se uma fonte sair do ar, as outras continuam e o site mostra qual não respondeu. O código do IBGE usado é `5207352` (Edealina-GO); para trocar, edite `CODIGO_IBGE` em [`ferramentas/monitor_recursos.py`](ferramentas/monitor_recursos.py).
 
 ## Orçamento e proposta para a Caixa
 
